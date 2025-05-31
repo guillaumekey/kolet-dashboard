@@ -1,0 +1,19 @@
+# Requirements pour le Dashboard Kolet
+
+# Interface utilisateur
+streamlit>=1.28.0
+
+# Manipulation de données
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Visualisation
+plotly>=5.15.0
+
+# Traitement de fichiers
+openpyxl>=3.1.0
+
+# Utilitaires
+python-dateutil>=2.8.0
+
+# Note: sqlite3 est inclus avec Python par défaut, pas besoin de l'installer
