@@ -18,7 +18,7 @@ class DataLoader:
         """
         self.db_manager = db_manager
 
-        # Mapping des colonnes par source
+        # MODIFIÉ : Mapping des colonnes par source avec nouveau format ASA
         self.column_mappings = {
             'google_ads': {
                 'campaign': 'campaign_name',
@@ -31,11 +31,18 @@ class DataLoader:
                 'conv. value': 'revenue'
             },
             'apple_search_ads': {
+                # NOUVEAU : Support pour ASA avec campagnes
                 'day': 'date',
+                'campaign name': 'campaign_name',  # AJOUTÉ
                 'spend': 'cost',
                 'impressions': 'impressions',
                 'taps': 'clicks',
-                'installs (tap-through)': 'installs'
+                'installs (tap-through)': 'installs',
+                # Colonnes supplémentaires pour information
+                'campaign status': 'campaign_status',
+                'ad group name': 'ad_group_name',
+                'new downloads (tap-through)': 'new_downloads',
+                'redownloads (tap-through)': 'redownloads'
             },
             'branch_io': {
                 'campaign': 'campaign_name',
@@ -48,13 +55,13 @@ class DataLoader:
                 'cost': 'cost',
                 'unified revenue': 'revenue',
                 'unified opens': 'opens',
-                'unified login': 'login'  # Mapping correct pour les logins
+                'unified login': 'login'
             }
         }
 
     def detect_file_type(self, filename: str) -> str:
         """
-        Détecte le type de fichier basé sur le nom
+        MODIFIÉ : Détecte le type de fichier basé sur le nom avec meilleure détection ASA
 
         Args:
             filename: Nom du fichier
@@ -64,19 +71,19 @@ class DataLoader:
         """
         filename_lower = filename.lower()
 
-        if 'asa' in filename_lower or 'apple' in filename_lower:
+        # Détection ASA améliorée
+        if 'asa' in filename_lower or 'apple' in filename_lower or 'search ads' in filename_lower:
             return 'apple_search_ads'
         elif 'export' in filename_lower or 'branch' in filename_lower:
             return 'branch_io'
         elif 'dashboard' in filename_lower or 'google' in filename_lower:
             return 'google_ads'
         else:
-            # Détection basée sur les colonnes
             return 'unknown'
 
     def detect_file_type_by_content(self, df: pd.DataFrame) -> str:
         """
-        Détecte le type de fichier basé sur le contenu
+        MODIFIÉ : Détecte le type de fichier basé sur le contenu avec nouveau ASA
 
         Args:
             df: DataFrame à analyser
@@ -86,23 +93,28 @@ class DataLoader:
         """
         columns = [col.lower().strip() for col in df.columns]
 
-        # Apple Search Ads
-        if 'spend' in columns and 'taps' in columns and 'impressions' in columns:
+        # MODIFIÉ : Nouvelle détection ASA avec campagnes
+        if ('campaign name' in columns and 'spend' in columns and
+                'taps' in columns and 'impressions' in columns):
+            return 'apple_search_ads'
+
+        # Ancienne détection ASA (pour compatibilité)
+        elif 'spend' in columns and 'taps' in columns and 'impressions' in columns:
             return 'apple_search_ads'
 
         # Branch.io
-        if 'unified installs' in columns and 'ad partner' in columns:
+        elif 'unified installs' in columns and 'ad partner' in columns:
             return 'branch_io'
 
         # Google Ads
-        if 'campaign' in columns and 'cost' in columns and any('impr' in col for col in columns):
+        elif 'campaign' in columns and 'cost' in columns and any('impr' in col for col in columns):
             return 'google_ads'
 
         return 'unknown'
 
     def preprocess_file(self, file_content: bytes, file_type: str, filename: str = "") -> pd.DataFrame:
         """
-        Préprocesse le contenu du fichier avant parsing
+        MODIFIÉ : Préprocesse le contenu du fichier avec support ASA campagnes
 
         Args:
             file_content: Contenu brut du fichier (bytes)
@@ -117,16 +129,31 @@ class DataLoader:
         lines = content_str.split('\n')
 
         if file_type == 'apple_search_ads':
-            # Trouver la ligne d'en-tête pour ASA
+            # MODIFIÉ : Nouvelle logique pour ASA avec campagnes
             header_line = -1
+
+            # Chercher différents patterns d'en-tête ASA
+            header_patterns = [
+                'Day,Campaign Name,',  # Nouveau format avec campagnes
+                'Day,Spend,',  # Ancien format sans campagnes
+                'Day,'  # Pattern général
+            ]
+
             for i, line in enumerate(lines):
-                if line.strip().startswith('Day,'):
-                    header_line = i
+                for pattern in header_patterns:
+                    if line.strip().startswith(pattern):
+                        header_line = i
+                        print(f"🔍 ASA header trouvé ligne {i}: {line[:100]}...")
+                        break
+                if header_line >= 0:
                     break
 
             if header_line >= 0:
                 csv_content = '\n'.join(lines[header_line:])
-                return pd.read_csv(StringIO(csv_content), quoting=1)  # QUOTE_ALL
+                return pd.read_csv(StringIO(csv_content), quoting=1)
+            else:
+                print("⚠️ Aucun en-tête ASA trouvé, essai parsing direct")
+                return pd.read_csv(StringIO(content_str), quoting=1)
 
         elif file_type == 'branch_io':
             # Trouver la ligne d'en-tête pour Branch.io
@@ -138,7 +165,7 @@ class DataLoader:
 
             if header_line >= 0:
                 csv_content = '\n'.join(lines[header_line:])
-                return pd.read_csv(StringIO(csv_content), quoting=1)  # QUOTE_ALL
+                return pd.read_csv(StringIO(csv_content), quoting=1)
 
         elif file_type == 'google_ads':
             # Pour Google Ads, ignorer les premières lignes de métadonnées
@@ -183,7 +210,7 @@ class DataLoader:
 
     def clean_and_normalize_data(self, df: pd.DataFrame, file_type: str) -> pd.DataFrame:
         """
-        Nettoie et normalise les données
+        MODIFIÉ : Nettoie et normalise les données avec support ASA campagnes
 
         Args:
             df: DataFrame à nettoyer
@@ -209,19 +236,22 @@ class DataLoader:
             if old_col in df_clean.columns:
                 df_clean = df_clean.rename(columns={old_col: new_col})
 
-        # Normaliser les dates
+        # MODIFIÉ : Normaliser les dates avec support ASA
         if 'date' in df_clean.columns:
-            # Convertir les dates MM/DD/YYYY vers YYYY-MM-DD
             df_clean['date'] = pd.to_datetime(df_clean['date'], errors='coerce')
-            # Gérer spécifiquement le format MM/DD/YYYY de Branch.io
-            if file_type == 'branch_io':
-                # Convertir format américain 2025/05/23 vers 2025-05-23
+
+            if file_type == 'apple_search_ads':
+                # Format ASA : "2025-05-23" ou similaire
+                df_clean['date'] = pd.to_datetime(df_clean['date'], format='%Y-%m-%d', errors='coerce')
+            elif file_type == 'branch_io':
+                # Format Branch.io : 2025/05/23
                 df_clean['date'] = pd.to_datetime(df_clean['date'], format='%Y/%m/%d', errors='coerce')
 
             df_clean['date'] = df_clean['date'].dt.strftime('%Y-%m-%d')
 
         # Nettoyer les valeurs numériques avec gestion spéciale pour Branch.io
-        numeric_columns = ['cost', 'impressions', 'clicks', 'installs', 'purchases', 'revenue', 'opens']
+        numeric_columns = ['cost', 'impressions', 'clicks', 'installs', 'purchases', 'revenue', 'opens',
+                           'new_downloads', 'redownloads']
 
         for col in numeric_columns:
             if col in df_clean.columns:
@@ -238,11 +268,13 @@ class DataLoader:
 
         # Ajouter les colonnes manquantes avec des valeurs par défaut
         required_columns = ['campaign_name', 'source', 'platform', 'date', 'impressions',
-                            'clicks', 'cost', 'installs', 'purchases', 'revenue', 'opens', 'login', 'ad_partner']
+                            'clicks', 'cost', 'installs', 'purchases', 'revenue', 'opens', 'login', 'ad_partner',
+                            'campaign_status', 'ad_group_name', 'new_downloads', 'redownloads']
 
         for col in required_columns:
             if col not in df_clean.columns:
-                if col in ['impressions', 'clicks', 'installs', 'purchases', 'opens', 'login']:
+                if col in ['impressions', 'clicks', 'installs', 'purchases', 'opens', 'login', 'new_downloads',
+                           'redownloads']:
                     df_clean[col] = 0
                 elif col in ['cost', 'revenue']:
                     df_clean[col] = 0.0
@@ -308,11 +340,21 @@ class DataLoader:
             else:
                 print(f"  ✅ AUCUNE PERTE")
 
-        # Définir la source et la plateforme selon le type de fichier
+        # MODIFIÉ : Définir la source et la plateforme avec nouveau ASA
         if file_type == 'apple_search_ads':
             df_clean['source'] = 'Apple Search Ads'
             df_clean['platform'] = 'iOS'
-            df_clean['campaign_name'] = 'Apple Search Ads Campaign'
+
+            # NOUVEAU : Garder le nom de campagne s'il existe
+            if 'campaign_name' not in df_clean.columns or df_clean['campaign_name'].isna().all():
+                df_clean['campaign_name'] = 'Apple Search Ads Campaign'
+
+            # Ajouter des métadonnées supplémentaires si disponibles
+            if 'campaign_status' in df_clean.columns:
+                print(f"🔍 ASA - Statuts de campagnes: {df_clean['campaign_status'].unique()}")
+
+            if 'ad_group_name' in df_clean.columns:
+                df_clean['ad_partner'] = df_clean['ad_group_name']
 
         elif file_type == 'google_ads':
             df_clean['source'] = 'Google Ads'
@@ -338,6 +380,21 @@ class DataLoader:
                 # Garder "Branch.io" comme source principale mais noter le partenaire
                 df_clean.loc[df_clean['ad partner'] == 'Apple Search Ads', 'source'] = 'Apple Search Ads'
                 df_clean.loc[df_clean['ad partner'] == 'Google AdWords', 'source'] = 'Google AdWords'
+
+        # Debug pour ASA avec campagnes
+        if file_type == 'apple_search_ads':
+            print(f"🔍 ASA processing:")
+            print(f"  • Lignes après nettoyage: {len(df_clean)}")
+            print(f"  • Colonnes: {list(df_clean.columns)}")
+            print(f"  • Campagnes uniques: {df_clean['campaign_name'].nunique()}")
+            print(f"  • Coût total: {df_clean['cost'].sum():.2f}€")
+            print(f"  • Installs total: {df_clean['installs'].sum():,}")
+            print(f"  • Dates: {df_clean['date'].min()} à {df_clean['date'].max()}")
+
+            # Afficher quelques exemples de campagnes
+            if df_clean['campaign_name'].nunique() > 1:
+                campaign_examples = df_clean['campaign_name'].unique()[:5]
+                print(f"  • Exemples de campagnes: {list(campaign_examples)}")
 
         # Supprimer les lignes avec des dates invalides
         before_date_filter = len(df_clean)

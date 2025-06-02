@@ -15,6 +15,7 @@ class DataProcessor:
                                exclude_unpopulated: bool = True) -> Dict[str, pd.DataFrame]:
         """
         Prépare les données pour l'affichage dans le dashboard avec logique métier Kolet
+        MODIFIÉ : Intègre la classification des campagnes pour les funnels
 
         Args:
             df: DataFrame avec les données brutes
@@ -75,17 +76,21 @@ class DataProcessor:
             if not data.empty and 'date' in data.columns:
                 data['date'] = pd.to_datetime(data['date'])
 
-        # Créer les données App et Web selon la logique métier
-        app_data = self._create_app_funnel_data(asa_data, branch_data)
-        web_data = self._create_web_funnel_data(google_ads_data)
+        # MODIFIÉ : Créer les données App et Web avec classification
+        app_data = self._create_app_funnel_data_with_classification(asa_data, branch_data, google_ads_data)
+        web_data = self._create_web_funnel_data_with_classification(google_ads_data)
 
         # Données consolidées pour les KPI globaux
         consolidated_data = self._create_consolidated_data(google_ads_data, asa_data, branch_data)
+
+        # NOUVEAU : Données par type de campagne
+        campaign_type_data = self._create_campaign_type_analysis(df)
 
         return {
             'app': app_data,
             'web': web_data,
             'consolidated': consolidated_data,
+            'campaign_types': campaign_type_data,  # NOUVEAU
             'raw': {
                 'google_ads': google_ads_data,
                 'asa': asa_data,
@@ -93,13 +98,190 @@ class DataProcessor:
             }
         }
 
+    def _create_app_funnel_data_with_classification(self, asa_data: pd.DataFrame, branch_data: pd.DataFrame,
+                                                    google_ads_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Crée les données du funnel App avec prise en compte de la classification des campagnes
+        MODIFIÉ : Filtre les clics/impressions selon la classification (app seulement)
+
+        Logique :
+        - Impressions/Clics : ASA + Google Ads classifié "app"
+        - Coûts : ASA + Google Ads classifié "app"
+        - Installs/Opens/Logins/Purchases : Branch.io seulement
+        """
+        print(f"🔍 _create_app_funnel_data_with_classification:")
+        print(f"  • ASA data: {len(asa_data)} lignes")
+        print(f"  • Branch data: {len(branch_data)} lignes")
+        print(f"  • Google Ads data: {len(google_ads_data)} lignes")
+
+        if branch_data.empty:
+            print("  ⚠️ Branch data vide, retour DataFrame vide")
+            return pd.DataFrame()
+
+        # Filtrer les données app de Branch.io
+        app_branch = branch_data[
+            ~branch_data['platform'].isin(['Web', 'WEB'])
+        ].copy()
+
+        print(f"  • Données app Branch après filtrage: {len(app_branch)} lignes")
+        print(f"  • Installs app: {app_branch['installs'].sum() if not app_branch.empty else 0}")
+
+        if app_branch.empty:
+            print("  ⚠️ Aucune donnée app après filtrage")
+            return pd.DataFrame()
+
+        # Grouper Branch.io par date pour les métriques post-install
+        branch_agg_dict = {
+            'installs': 'sum',
+            'opens': 'sum',
+            'revenue': 'sum',
+            'purchases': 'sum'
+        }
+
+        if 'login' in app_branch.columns:
+            branch_agg_dict['login'] = 'sum'
+
+        app_funnel = app_branch.groupby('date').agg(branch_agg_dict).reset_index()
+
+        print(f"  • Après groupement Branch.io par date: {len(app_funnel)} lignes")
+        print(f"  • Total installs agrégé: {app_funnel['installs'].sum()}")
+
+        # Initialiser les colonnes publicitaires
+        app_funnel['impressions'] = 0
+        app_funnel['clicks'] = 0
+        app_funnel['cost'] = 0
+
+        # MODIFIÉ : Ajouter ASA (toujours app)
+        if not asa_data.empty:
+            asa_agg = asa_data.groupby('date').agg({
+                'impressions': 'sum',
+                'clicks': 'sum',
+                'cost': 'sum'
+            }).reset_index()
+
+            print(f"  • ASA data agrégée: {len(asa_agg)} lignes")
+            print(f"  • ASA impressions: {asa_agg['impressions'].sum():,}")
+            print(f"  • ASA clicks: {asa_agg['clicks'].sum():,}")
+            print(f"  • ASA costs: {asa_agg['cost'].sum():.2f}€")
+
+            # Merger avec les données app
+            app_funnel = app_funnel.merge(asa_agg, on='date', how='outer', suffixes=('', '_asa'))
+            app_funnel['impressions'] = app_funnel['impressions'].fillna(0) + app_funnel['impressions_asa'].fillna(0)
+            app_funnel['clicks'] = app_funnel['clicks'].fillna(0) + app_funnel['clicks_asa'].fillna(0)
+            app_funnel['cost'] = app_funnel['cost'].fillna(0) + app_funnel['cost_asa'].fillna(0)
+
+            # Nettoyer les colonnes temporaires
+            app_funnel = app_funnel.drop(columns=[col for col in app_funnel.columns if col.endswith('_asa')])
+
+        # NOUVEAU : Ajouter Google Ads classifié "app"
+        if not google_ads_data.empty:
+            google_app_data = google_ads_data[
+                google_ads_data['channel_type'] == 'app'
+                ].copy()
+
+            if not google_app_data.empty:
+                google_app_agg = google_app_data.groupby('date').agg({
+                    'impressions': 'sum',
+                    'clicks': 'sum',
+                    'cost': 'sum'
+                }).reset_index()
+
+                print(f"  • Google Ads App classifiées: {len(google_app_agg)} lignes")
+                print(f"  • Google App impressions: {google_app_agg['impressions'].sum():,}")
+                print(f"  • Google App clicks: {google_app_agg['clicks'].sum():,}")
+                print(f"  • Google App costs: {google_app_agg['cost'].sum():.2f}€")
+
+                # Merger avec les données app
+                app_funnel = app_funnel.merge(google_app_agg, on='date', how='outer', suffixes=('', '_google'))
+                app_funnel['impressions'] = app_funnel['impressions'].fillna(0) + app_funnel[
+                    'impressions_google'].fillna(0)
+                app_funnel['clicks'] = app_funnel['clicks'].fillna(0) + app_funnel['clicks_google'].fillna(0)
+                app_funnel['cost'] = app_funnel['cost'].fillna(0) + app_funnel['cost_google'].fillna(0)
+
+                # Nettoyer les colonnes temporaires
+                app_funnel = app_funnel.drop(columns=[col for col in app_funnel.columns if col.endswith('_google')])
+
+        # Remplir les valeurs manquantes
+        app_funnel = app_funnel.fillna(0)
+
+        # Gérer la colonne login
+        if 'login' not in app_funnel.columns:
+            app_funnel['login'] = (app_funnel['opens'] * 0.25).round().astype(int)
+            print(f"  • Logins estimés: {app_funnel['login'].sum():,}")
+        else:
+            print(f"  • Logins réels: {app_funnel['login'].sum():,}")
+
+        # Calculer les métriques du funnel app
+        app_funnel = self._calculate_app_funnel_metrics(app_funnel)
+        app_funnel['channel'] = 'App'
+
+        print(f"  ✅ Funnel app créé: {len(app_funnel)} lignes, {app_funnel['installs'].sum()} installs")
+        print(f"  📊 Totaux finaux App:")
+        print(f"    - Impressions: {app_funnel['impressions'].sum():,}")
+        print(f"    - Clics: {app_funnel['clicks'].sum():,}")
+        print(f"    - Installs: {app_funnel['installs'].sum():,}")
+        print(f"    - Opens: {app_funnel['opens'].sum():,}")
+
+        return app_funnel
+
+    def _create_web_funnel_data_with_classification(self, google_ads_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Crée les données du funnel Web avec prise en compte de la classification des campagnes
+        MODIFIÉ : Filtre seulement les campagnes classifiées "web"
+
+        Logique :
+        - Toutes les données viennent de Google Ads classifié "web"
+        """
+        if google_ads_data.empty:
+            return pd.DataFrame()
+
+        # MODIFIÉ : Filtrer seulement les campagnes classifiées "web"
+        web_google_ads = google_ads_data[
+            (google_ads_data['channel_type'] == 'web') |
+            (google_ads_data['channel_type'].isna())  # Inclure les non-classifiées par défaut comme web
+            ].copy()
+
+        if web_google_ads.empty:
+            print("  ⚠️ Aucune campagne Google Ads classifiée 'web'")
+            return pd.DataFrame()
+
+        print(f"  • Google Ads Web classifiées: {len(web_google_ads)} lignes")
+        print(f"  • Google Web impressions: {web_google_ads['impressions'].sum():,}")
+        print(f"  • Google Web clicks: {web_google_ads['clicks'].sum():,}")
+
+        # Grouper par date pour le funnel web
+        web_funnel = web_google_ads.groupby('date').agg({
+            'impressions': 'sum',
+            'clicks': 'sum',
+            'cost': 'sum',
+            'purchases': 'sum',
+            'revenue': 'sum'
+        }).reset_index()
+
+        # Ajouter add_to_cart si pas présent (estimation)
+        if 'add_to_cart' not in web_funnel.columns:
+            web_funnel['add_to_cart'] = (web_funnel['purchases'] * 3).round().astype(int)
+
+        # Calculer les métriques du funnel web
+        web_funnel = self._calculate_web_funnel_metrics(web_funnel)
+        web_funnel['channel'] = 'Web'
+
+        print(f"  ✅ Funnel web créé: {len(web_funnel)} lignes")
+        print(f"  📊 Totaux finaux Web:")
+        print(f"    - Impressions: {web_funnel['impressions'].sum():,}")
+        print(f"    - Clics: {web_funnel['clicks'].sum():,}")
+        print(f"    - Purchases: {web_funnel['purchases'].sum():,}")
+
+        return web_funnel
+
     def _create_app_funnel_data(self, asa_data: pd.DataFrame, branch_data: pd.DataFrame) -> pd.DataFrame:
         """
         Crée les données du funnel App : Impressions -> Clics -> Installs -> Opens -> Logins -> Purchases
+        VERSION LEGACY - Conservée pour compatibilité
 
-        Logique :
-        - Coûts : ASA seulement (pas de double comptage)
-        - Impressions/Clics : Branch.io (données consolidées)
+        MODIFIÉ : Logique corrigée pour clics et impressions
+        - Impressions/Clics : ASA seulement (données publicitaires fiables)
+        - Coûts : ASA seulement
         - Installs/Opens/Logins/Purchases : Branch.io seulement
         """
         print(f"🔍 _create_app_funnel_data:")
@@ -133,35 +315,48 @@ class DataProcessor:
             for platform, installs in platform_breakdown.items():
                 print(f"    - {platform}: {installs:,} installs")
 
-        # Grouper par date pour le funnel app
-        agg_dict = {
-            'impressions': 'sum',  # Branch.io pour impressions
-            'clicks': 'sum',  # Branch.io pour clics
+        # MODIFIÉ : Grouper Branch.io par date pour les métriques post-install
+        branch_agg_dict = {
             'installs': 'sum',  # Branch.io pour installs
             'opens': 'sum',  # Branch.io pour opens
-            'cost': 'sum',  # On va remplacer par ASA
             'revenue': 'sum',  # Branch.io pour revenue
             'purchases': 'sum'  # Branch.io pour purchases
         }
 
         # Ajouter les logins si la colonne existe
         if 'login' in app_branch.columns:
-            agg_dict['login'] = 'sum'
+            branch_agg_dict['login'] = 'sum'
 
-        app_funnel = app_branch.groupby('date').agg(agg_dict).reset_index()
+        app_funnel = app_branch.groupby('date').agg(branch_agg_dict).reset_index()
 
-        print(f"  • Après groupement par date: {len(app_funnel)} lignes")
+        print(f"  • Après groupement Branch.io par date: {len(app_funnel)} lignes")
         print(f"  • Total installs agrégé: {app_funnel['installs'].sum()}")
 
-        # Ajouter les coûts ASA (remplacer les coûts Branch)
+        # MODIFIÉ : Ajouter les données ASA (impressions, clics, coûts)
         if not asa_data.empty:
-            asa_costs = asa_data.groupby('date')['cost'].sum().reset_index()
-            print(f"  • ASA costs: {len(asa_costs)} lignes, total: {asa_costs['cost'].sum():.2f}€")
-            app_funnel = app_funnel.merge(asa_costs, on='date', how='left', suffixes=('', '_asa'))
-            app_funnel['cost'] = app_funnel['cost_asa'].fillna(0)
-            app_funnel.drop(columns=['cost_asa'], inplace=True)
+            asa_agg = asa_data.groupby('date').agg({
+                'impressions': 'sum',
+                'clicks': 'sum',
+                'cost': 'sum'
+            }).reset_index()
+
+            print(f"  • ASA data agrégée: {len(asa_agg)} lignes")
+            print(f"  • ASA impressions: {asa_agg['impressions'].sum():,}")
+            print(f"  • ASA clicks: {asa_agg['clicks'].sum():,}")
+            print(f"  • ASA costs: {asa_agg['cost'].sum():.2f}€")
+
+            # Merger avec les données Branch.io
+            app_funnel = app_funnel.merge(asa_agg, on='date', how='outer')
+
+            # Remplir les valeurs manquantes
+            app_funnel = app_funnel.fillna(0)
+
+            print(f"  • Après merge ASA: {len(app_funnel)} lignes")
         else:
-            print("  ⚠️ Aucune donnée ASA pour les coûts")
+            print("  ⚠️ Aucune donnée ASA - ajout de colonnes vides")
+            app_funnel['impressions'] = 0
+            app_funnel['clicks'] = 0
+            app_funnel['cost'] = 0
 
         # Gérer la colonne login
         if 'login' not in app_funnel.columns:
@@ -176,6 +371,11 @@ class DataProcessor:
         app_funnel['channel'] = 'App'
 
         print(f"  ✅ Funnel app créé: {len(app_funnel)} lignes, {app_funnel['installs'].sum()} installs")
+        print(f"  📊 Totaux finaux App:")
+        print(f"    - Impressions: {app_funnel['impressions'].sum():,}")
+        print(f"    - Clics: {app_funnel['clicks'].sum():,}")
+        print(f"    - Installs: {app_funnel['installs'].sum():,}")
+        print(f"    - Opens: {app_funnel['opens'].sum():,}")
 
         return app_funnel
 
@@ -209,13 +409,318 @@ class DataProcessor:
 
         return web_funnel
 
+    def _create_campaign_type_analysis(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        CORRIGÉ : Crée l'analyse par type de campagne avec données correctes
+
+        Args:
+            df: DataFrame avec les données consolidées
+
+        Returns:
+            DataFrame avec les performances par type de campagne
+        """
+        print(f"🔍 _create_campaign_type_analysis:")
+        print(f"  • Données totales: {len(df)} lignes")
+
+        if df.empty:
+            return pd.DataFrame()
+
+        # Vérifier si on a des classifications
+        if 'campaign_type' not in df.columns:
+            print("  ⚠️ Aucune classification de campagne trouvée")
+            return pd.DataFrame()
+
+        # Filtrer les campagnes classifiées
+        classified_data = df[df['campaign_type'].notna()].copy()
+
+        if classified_data.empty:
+            print("  ⚠️ Aucune campagne classifiée")
+            return pd.DataFrame()
+
+        print(f"  • Campagnes classifiées: {len(classified_data)} lignes")
+
+        # CORRECTION MAJEURE : Éviter le double comptage
+        # Ne compter les coûts/impressions/clics que pour Google Ads et ASA (sources publicitaires)
+        advertising_sources = ['Google Ads', 'Google AdWords', 'Apple Search Ads']
+
+        # Séparer les données publicitaires des données de conversion
+        advertising_data = classified_data[classified_data['source'].isin(advertising_sources)].copy()
+        conversion_data = classified_data.copy()  # Toutes les données pour les conversions
+
+        print(f"  • Données publicitaires (coûts/clics): {len(advertising_data)} lignes")
+        print(f"  • Sources publicitaires: {advertising_data['source'].unique()}")
+
+        # Agrégation des données publicitaires (coûts, impressions, clics)
+        advertising_agg = advertising_data.groupby(['campaign_type', 'channel_type']).agg({
+            'cost': 'sum',
+            'impressions': 'sum',
+            'clicks': 'sum',
+            'campaign_name': 'nunique'
+        }).reset_index()
+
+        # Agrégation des données de conversion (installs, purchases, etc.)
+        conversion_agg = conversion_data.groupby(['campaign_type', 'channel_type']).agg({
+            'installs': 'sum',
+            'purchases': 'sum',
+            'revenue': 'sum',
+            'opens': 'sum',
+            'login': 'sum'
+        }).reset_index()
+
+        # NOUVEAU : Ajouter add_to_cart pour les campagnes web
+        if 'add_to_cart' in conversion_data.columns:
+            web_conversion_agg = conversion_data[conversion_data['channel_type'] == 'web'].groupby(
+                ['campaign_type', 'channel_type']).agg({
+                'add_to_cart': 'sum'
+            }).reset_index()
+            conversion_agg = conversion_agg.merge(web_conversion_agg, on=['campaign_type', 'channel_type'], how='left')
+        else:
+            # Estimer add_to_cart pour le web (3x les purchases)
+            conversion_agg['add_to_cart'] = 0
+            web_mask = conversion_agg['channel_type'] == 'web'
+            conversion_agg.loc[web_mask, 'add_to_cart'] = conversion_agg.loc[web_mask, 'purchases'] * 3
+
+        conversion_agg['add_to_cart'] = conversion_agg['add_to_cart'].fillna(0)
+
+        # Merger les données publicitaires et de conversion
+        campaign_analysis = advertising_agg.merge(conversion_agg, on=['campaign_type', 'channel_type'], how='outer')
+
+        # Remplir les valeurs manquantes
+        campaign_analysis = campaign_analysis.fillna(0)
+
+        # Renommer la colonne campaign_name
+        campaign_analysis = campaign_analysis.rename(columns={'campaign_name': 'nb_campaigns'})
+
+        print(f"  • Coût total calculé: {campaign_analysis['cost'].sum():.2f}€")
+        print(f"  • Clics total calculé: {campaign_analysis['clicks'].sum():,}")
+        print(f"  • Installs total: {campaign_analysis['installs'].sum():,}")
+        print(f"  • Purchases total: {campaign_analysis['purchases'].sum():,}")
+
+        # CORRECTION : Calculer les métriques avec les bonnes formules
+        campaign_analysis['ctr'] = self._safe_divide(campaign_analysis['clicks'],
+                                                     campaign_analysis['impressions']) * 100
+
+        # CORRECTION : Conversion rate = installs / clicks pour app, purchases / clicks pour web
+        campaign_analysis['conversion_rate'] = 0.0
+
+        # Pour les campagnes app : conversion_rate = installs / clicks
+        app_mask = campaign_analysis['channel_type'] == 'app'
+        campaign_analysis.loc[app_mask, 'conversion_rate'] = self._safe_divide(
+            campaign_analysis.loc[app_mask, 'installs'],
+            campaign_analysis.loc[app_mask, 'clicks']
+        ) * 100
+
+        # Pour les campagnes web : conversion_rate = purchases / clicks
+        web_mask = campaign_analysis['channel_type'] == 'web'
+        campaign_analysis.loc[web_mask, 'conversion_rate'] = self._safe_divide(
+            campaign_analysis.loc[web_mask, 'purchases'],
+            campaign_analysis.loc[web_mask, 'clicks']
+        ) * 100
+
+        # NOUVEAU : Taux d'achat DL = purchases / installs (pour app seulement)
+        campaign_analysis['purchase_rate_dl'] = 0.0
+        campaign_analysis.loc[app_mask, 'purchase_rate_dl'] = self._safe_divide(
+            campaign_analysis.loc[app_mask, 'purchases'],
+            campaign_analysis.loc[app_mask, 'installs']
+        ) * 100
+
+        # CORRECTION : Purchase rate = purchases / clicks (pour web)
+        campaign_analysis['purchase_rate'] = 0.0
+        campaign_analysis.loc[web_mask, 'purchase_rate'] = self._safe_divide(
+            campaign_analysis.loc[web_mask, 'purchases'],
+            campaign_analysis.loc[web_mask, 'clicks']
+        ) * 100
+
+        # Pour app, purchase_rate = purchases / installs
+        campaign_analysis.loc[app_mask, 'purchase_rate'] = self._safe_divide(
+            campaign_analysis.loc[app_mask, 'purchases'],
+            campaign_analysis.loc[app_mask, 'installs']
+        ) * 100
+
+        # NOUVEAU : Métriques spécifiques par canal
+        # App : open_rate = opens / installs, login_rate = logins / installs
+        campaign_analysis['open_rate'] = 0.0
+        campaign_analysis['login_rate'] = 0.0
+
+        campaign_analysis.loc[app_mask, 'open_rate'] = self._safe_divide(
+            campaign_analysis.loc[app_mask, 'opens'],
+            campaign_analysis.loc[app_mask, 'installs']
+        ) * 100
+
+        campaign_analysis.loc[app_mask, 'login_rate'] = self._safe_divide(
+            campaign_analysis.loc[app_mask, 'login'],
+            campaign_analysis.loc[app_mask, 'installs']
+        ) * 100
+
+        # Web : cart_rate = add_to_cart / clicks, cart_to_purchase = purchases / add_to_cart
+        campaign_analysis['cart_rate'] = 0.0
+        campaign_analysis['cart_to_purchase_rate'] = 0.0
+
+        campaign_analysis.loc[web_mask, 'cart_rate'] = self._safe_divide(
+            campaign_analysis.loc[web_mask, 'add_to_cart'],
+            campaign_analysis.loc[web_mask, 'clicks']
+        ) * 100
+
+        campaign_analysis.loc[web_mask, 'cart_to_purchase_rate'] = self._safe_divide(
+            campaign_analysis.loc[web_mask, 'purchases'],
+            campaign_analysis.loc[web_mask, 'add_to_cart']
+        ) * 100
+
+        # Autres métriques économiques
+        campaign_analysis['cpc'] = self._safe_divide(campaign_analysis['cost'], campaign_analysis['clicks'])
+
+        # CPA différent selon le canal
+        campaign_analysis['cpa'] = 0.0
+        campaign_analysis.loc[app_mask, 'cpa'] = self._safe_divide(
+            campaign_analysis.loc[app_mask, 'cost'],
+            campaign_analysis.loc[app_mask, 'installs']
+        )
+        campaign_analysis.loc[web_mask, 'cpa'] = self._safe_divide(
+            campaign_analysis.loc[web_mask, 'cost'],
+            campaign_analysis.loc[web_mask, 'purchases']
+        )
+
+        campaign_analysis['roas'] = self._safe_divide(campaign_analysis['revenue'], campaign_analysis['cost'])
+        campaign_analysis['revenue_per_install'] = self._safe_divide(campaign_analysis['revenue'],
+                                                                     campaign_analysis['installs'])
+
+        print(f"  • Types de campagnes analysés: {campaign_analysis['campaign_type'].unique()}")
+        print(f"  • Canaux analysés: {campaign_analysis['channel_type'].unique()}")
+
+        # Debug par ligne
+        for _, row in campaign_analysis.iterrows():
+            print(
+                f"  📊 {row['campaign_type']}-{row['channel_type']}: {row['clicks']:.0f} clics, {row['purchases']:.0f} achats, taux: {row['purchase_rate']:.2f}%")
+
+        return campaign_analysis
+
+    def get_campaign_type_summary(self, campaign_analysis: pd.DataFrame) -> Dict[str, Any]:
+        """
+        CORRIGÉ : Génère un résumé des performances par type de campagne
+
+        Args:
+            campaign_analysis: DataFrame avec l'analyse par type de campagne
+
+        Returns:
+            Dictionnaire avec le résumé
+        """
+        if campaign_analysis.empty:
+            return {}
+
+        summary = {}
+
+        for campaign_type in campaign_analysis['campaign_type'].unique():
+            type_data = campaign_analysis[campaign_analysis['campaign_type'] == campaign_type]
+
+            # Agrégation totale pour ce type
+            total_data = type_data.agg({
+                'cost': 'sum',
+                'impressions': 'sum',
+                'clicks': 'sum',
+                'installs': 'sum',
+                'purchases': 'sum',
+                'revenue': 'sum',
+                'nb_campaigns': 'sum'
+            })
+
+            # Métriques calculées
+            summary[campaign_type] = {
+                'total_cost': total_data['cost'],
+                'total_impressions': total_data['impressions'],
+                'total_clicks': total_data['clicks'],
+                'total_installs': total_data['installs'],
+                'total_purchases': total_data['purchases'],
+                'total_revenue': total_data['revenue'],
+                'nb_campaigns': total_data['nb_campaigns'],
+                'ctr': self._safe_divide(total_data['clicks'], total_data['impressions']) * 100,
+                'conversion_rate': self._safe_divide(total_data['installs'], total_data['clicks']) * 100,
+                'purchase_rate': self._safe_divide(total_data['purchases'], total_data['installs']) * 100,
+                'cpa': self._safe_divide(total_data['cost'], total_data['installs']),
+                'roas': self._safe_divide(total_data['revenue'], total_data['cost']),
+                'cost_share': 0  # Sera calculé plus tard
+                # SUPPRESSION du performance_score
+            }
+
+        # Calculer les parts de budget
+        total_cost = sum(data['total_cost'] for data in summary.values())
+        for campaign_type in summary:
+            if total_cost > 0:
+                summary[campaign_type]['cost_share'] = (summary[campaign_type]['total_cost'] / total_cost) * 100
+
+        return summary
+
+    def get_campaign_type_insights(self, summary: Dict[str, Any]) -> List[Dict[str, str]]:
+        """
+        NOUVEAU : Génère des insights sur les performances par type de campagne
+
+        Args:
+            summary: Résumé des performances par type
+
+        Returns:
+            Liste d'insights
+        """
+        insights = []
+
+        if not summary:
+            return insights
+
+        # Trouver le meilleur et le pire en ROAS
+        roas_ranking = sorted(summary.items(), key=lambda x: x[1]['roas'], reverse=True)
+
+        if len(roas_ranking) >= 2:
+            best_roas = roas_ranking[0]
+            worst_roas = roas_ranking[-1]
+
+            insights.append({
+                'type': 'success',
+                'title': f'Meilleur ROAS: {best_roas[0].title()}',
+                'message': f'ROAS de {best_roas[1]["roas"]:.2f} avec {best_roas[1]["nb_campaigns"]:.0f} campagnes'
+            })
+
+            if best_roas[1]['roas'] > worst_roas[1]['roas'] * 1.5:
+                insights.append({
+                    'type': 'warning',
+                    'title': 'Écart de performance important',
+                    'message': f'{best_roas[0].title()} performe {(best_roas[1]["roas"] / worst_roas[1]["roas"]):.1f}x mieux que {worst_roas[0].title()}'
+                })
+
+        # Analyse du budget allocation
+        budget_ranking = sorted(summary.items(), key=lambda x: x[1]['cost_share'], reverse=True)
+
+        if budget_ranking:
+            biggest_spender = budget_ranking[0]
+            insights.append({
+                'type': 'info',
+                'title': 'Répartition budget',
+                'message': f'{biggest_spender[0].title()} représente {biggest_spender[1]["cost_share"]:.0f}% du budget total'
+            })
+
+        # Recommandations d'optimisation
+        for campaign_type, data in summary.items():
+            if data['roas'] < 1.5 and data['cost_share'] > 30:
+                insights.append({
+                    'type': 'warning',
+                    'title': f'Optimisation {campaign_type.title()}',
+                    'message': f'ROAS faible ({data["roas"]:.2f}) malgré {data["cost_share"]:.0f}% du budget'
+                })
+
+            if data['conversion_rate'] < 5 and data['total_clicks'] > 1000:
+                insights.append({
+                    'type': 'info',
+                    'title': f'Conversion {campaign_type.title()}',
+                    'message': f'Taux de conversion à améliorer: {data["conversion_rate"]:.1f}%'
+                })
+
+        return insights
+
     def _create_consolidated_data(self, google_ads_data: pd.DataFrame,
                                   asa_data: pd.DataFrame, branch_data: pd.DataFrame) -> pd.DataFrame:
         """
-        Crée les données consolidées pour les KPI globaux
+        CORRIGÉ : Crée les données consolidées pour les KPI globaux avec logique de coûts corrigée
 
-        Logique :
-        - Coûts : Google Ads + ASA (pas Branch.io)
+        LOGIQUE CORRECTE :
+        - Impressions/Clics : Google Ads + ASA seulement
+        - Coûts : Google Ads + ASA seulement (PAS Branch.io car Branch.io n'a pas de coûts propres)
         - Installs : Branch.io seulement (TOUTES les plateformes)
         - Purchases : Branch.io (app) + Google Ads (web)
         """
@@ -237,7 +742,7 @@ class DataProcessor:
         consolidated = pd.DataFrame({'date': sorted(list(all_dates))})
         consolidated['date'] = pd.to_datetime(consolidated['date'])
 
-        # Coûts : Google Ads + ASA
+        # CORRECTION : Coûts uniquement Google Ads + ASA (pas Branch.io)
         cost_data = []
         if not google_ads_data.empty:
             google_costs = google_ads_data.groupby('date')['cost'].sum()
@@ -256,6 +761,47 @@ class DataProcessor:
         else:
             consolidated['cost'] = 0
 
+        # Impressions et Clics : Google Ads + ASA seulement
+        print(f"  📊 Calcul impressions/clics - Sources publicitaires uniquement:")
+
+        # Impressions
+        impression_data = []
+        if not google_ads_data.empty:
+            google_impressions = google_ads_data.groupby('date')['impressions'].sum()
+            impression_data.append(google_impressions)
+            print(f"  • Google Ads impressions: {google_impressions.sum():,}")
+        if not asa_data.empty:
+            asa_impressions = asa_data.groupby('date')['impressions'].sum()
+            impression_data.append(asa_impressions)
+            print(f"  • ASA impressions: {asa_impressions.sum():,}")
+
+        if impression_data:
+            total_impressions = pd.concat(impression_data).groupby(level=0).sum()
+            consolidated = consolidated.merge(total_impressions.reset_index(), on='date', how='left')
+            consolidated['impressions'] = consolidated['impressions'].fillna(0)
+            print(f"  • Total impressions: {consolidated['impressions'].sum():,}")
+        else:
+            consolidated['impressions'] = 0
+
+        # Clics
+        click_data = []
+        if not google_ads_data.empty:
+            google_clicks = google_ads_data.groupby('date')['clicks'].sum()
+            click_data.append(google_clicks)
+            print(f"  • Google Ads clicks: {google_clicks.sum():,}")
+        if not asa_data.empty:
+            asa_clicks = asa_data.groupby('date')['clicks'].sum()
+            click_data.append(asa_clicks)
+            print(f"  • ASA clicks: {asa_clicks.sum():,}")
+
+        if click_data:
+            total_clicks = pd.concat(click_data).groupby(level=0).sum()
+            consolidated = consolidated.merge(total_clicks.reset_index(), on='date', how='left')
+            consolidated['clicks'] = consolidated['clicks'].fillna(0)
+            print(f"  • Total clicks: {consolidated['clicks'].sum():,}")
+        else:
+            consolidated['clicks'] = 0
+
         # Installs : Branch.io seulement (TOUTES plateformes)
         if not branch_data.empty:
             branch_installs = branch_data.groupby('date')['installs'].sum()
@@ -266,19 +812,11 @@ class DataProcessor:
             consolidated['installs'] = 0
             print("  ⚠️ Aucun install Branch.io")
 
-        # Impressions, Clics, Opens et Logins : somme de toutes les sources
-        for metric in ['impressions', 'clicks', 'opens', 'login']:
-            metric_data = []
-            for data in [google_ads_data, asa_data, branch_data]:
-                if not data.empty and metric in data.columns:
-                    metric_sum = data.groupby('date')[metric].sum()
-                    metric_data.append(metric_sum)
-                    print(
-                        f"  • {data['source'].iloc[0] if 'source' in data.columns else 'Unknown'} {metric}: {metric_sum.sum():,}")
-
-            if metric_data:
-                total_metric = pd.concat(metric_data).groupby(level=0).sum()
-                consolidated = consolidated.merge(total_metric.reset_index(), on='date', how='left')
+        # Opens et Logins : Branch.io seulement
+        for metric in ['opens', 'login']:
+            if not branch_data.empty and metric in branch_data.columns:
+                branch_metric = branch_data.groupby('date')[metric].sum()
+                consolidated = consolidated.merge(branch_metric.reset_index(), on='date', how='left')
                 consolidated[metric] = consolidated[metric].fillna(0)
                 print(f"  • Total {metric}: {consolidated[metric].sum():,}")
             else:
@@ -329,6 +867,7 @@ class DataProcessor:
         consolidated = self._calculate_global_metrics(consolidated)
 
         print(f"  ✅ Consolidated créé: {len(consolidated)} lignes, {consolidated['installs'].sum():,} installs")
+        print(f"  💰 Coût total consolidé: {consolidated['cost'].sum():.2f}€")
 
         return consolidated
 

@@ -5,23 +5,26 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="569b4c83-6bce-4c8d-9b8d-b3117574d16f" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/kolet-dashboard.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/data_processing/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/data_processing/data_loader.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/data_processing/data_processor.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/database/db_manager.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/run.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utils/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utils/config.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/utils/helpers.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/campaign_config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/campaign_performance.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/campaign_type_comparison.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/comparison_charts.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/debug_panel.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/funnel_charts.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/kpi_dashboard.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/partner_performance.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/sidebar.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/components/temporal_charts.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/styles.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data_processing/data_loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_processing/data_loader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data_processing/data_processor.py" beforeDir="false" afterPath="$PROJECT_DIR$/data_processing/data_processor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/database/db_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/database/db_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/kolet_dashboard.db" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/config.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -38,22 +41,22 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 0
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 0
+}</component>
   <component name="ProjectId" id="2xryRVjXA222pDhuwZOoHQlwXbD" />
   <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "RunOnceActivity.OpenProjectViewOnStart": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "master"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\guill\PycharmProjects\kolet-dashboard" />
