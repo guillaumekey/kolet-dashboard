@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
+import time
+import gc
 
 # Imports des modules personnalisés
 from database.db_manager import DatabaseManager
@@ -10,7 +12,6 @@ from data_processing.data_processor import DataProcessor
 
 # Imports des composants UI
 from ui.styles import apply_custom_styles
-from ui.components.partner_performance import render_partner_performance_table
 from ui.components.sidebar import render_sidebar
 from ui.components.debug_panel import render_debug_panel
 from ui.components.kpi_dashboard import render_main_kpis
@@ -22,6 +23,7 @@ from ui.components.campaign_config import show_campaign_configuration
 from ui.components.campaign_type_comparison import (
     render_campaign_type_comparison
 )
+# SUPPRIMÉ : Import de partner_performance
 
 # Configuration de la page
 st.set_page_config(
@@ -62,15 +64,50 @@ def add_debug_controls():
                 st.success("Application reset!")
                 st.rerun()
 
-        # Bouton pour supprimer complètement la base de données
+        # CORRIGÉ : Bouton pour supprimer complètement la base de données
         if st.button("🗑️ Reset DB Complet", type="secondary"):
             if st.session_state.get('confirm_full_reset', False):
                 try:
-                    # Supprimer la base de données
-                    if os.path.exists("data/kolet_dashboard.db"):
-                        os.remove("data/kolet_dashboard.db")
+                    # NOUVEAU : Fermer toutes les connexions DB avant suppression
+                    gc.collect()  # Force garbage collection
 
-                    # Vider le cache
+                    # NOUVEAU : Essayer de fermer les connexions explicitement
+                    try:
+                        # Si on a une instance db_manager globale, la fermer
+                        if 'db_manager' in globals():
+                            db_manager.close_connections()
+                    except:
+                        pass
+
+                    # NOUVEAU : Attendre un peu pour que les connexions se ferment
+                    time.sleep(0.5)
+
+                    # Supprimer la base de données avec gestion d'erreur améliorée
+                    db_path = "data/kolet_dashboard.db"
+                    if os.path.exists(db_path):
+                        try:
+                            os.remove(db_path)
+                            st.success("✅ Base de données supprimée avec succès!")
+                        except PermissionError:
+                            # NOUVEAU : Méthode alternative si fichier verrouillé
+                            st.warning("⚠️ Fichier verrouillé. Essai méthode alternative...")
+
+                            # Essayer de renommer le fichier d'abord
+                            backup_path = f"{db_path}.backup_{int(time.time())}"
+                            try:
+                                os.rename(db_path, backup_path)
+                                st.info(f"📁 Base renommée vers: {backup_path}")
+                                st.success("✅ Reset effectué! Redémarrez l'application pour supprimer complètement.")
+                            except Exception as e:
+                                st.error(f"❌ Impossible de reset la DB: {e}")
+                                return
+                        except Exception as e:
+                            st.error(f"❌ Erreur lors de la suppression: {e}")
+                            return
+                    else:
+                        st.info("📭 Aucune base de données trouvée")
+
+                    # Vider le cache après suppression DB
                     st.cache_data.clear()
                     if hasattr(st, 'cache_resource'):
                         st.cache_resource.clear()
@@ -79,30 +116,56 @@ def add_debug_controls():
                     for key in list(st.session_state.keys()):
                         del st.session_state[key]
 
-                    st.success("✅ Base de données et cache complètement vidés!")
+                    st.session_state.confirm_full_reset = False
                     st.rerun()
 
                 except Exception as e:
-                    st.error(f"Erreur: {e}")
+                    st.error(f"❌ Erreur inattendue: {e}")
+                    st.info("💡 Redémarrez l'application Streamlit pour un reset complet")
             else:
                 st.session_state.confirm_full_reset = True
                 st.warning("⚠️ Cliquez à nouveau pour confirmer la suppression complète")
+
+        # NOUVEAU : Bouton alternatif pour forcer le reset
+        if st.button("⚡ Force Reset (Redémarrage requis)", type="secondary"):
+            try:
+                # Créer un fichier signal pour indiquer qu'il faut supprimer la DB au prochain démarrage
+                os.makedirs("data", exist_ok=True)
+                with open("data/.reset_signal", "w") as f:
+                    f.write("DELETE_DB")
+
+                st.warning("🔄 Redémarrez l'application Streamlit pour appliquer le reset complet")
+                st.info("La base sera supprimée au prochain démarrage")
+
+            except Exception as e:
+                st.error(f"Erreur: {e}")
 
         # Afficher les informations de debug
         if st.checkbox("🔍 Mode Debug Avancé"):
             st.write("**📊 Diagnostic Base de Données:**")
             try:
-                db_exists = os.path.exists("data/kolet_dashboard.db")
+                db_path = "data/kolet_dashboard.db"
+                db_exists = os.path.exists(db_path)
                 st.write(f"• Base existe: {'✅' if db_exists else '❌'}")
 
                 if db_exists:
-                    db_size = os.path.getsize("data/kolet_dashboard.db")
+                    db_size = os.path.getsize(db_path)
                     st.write(f"• Taille DB: {db_size:,} bytes")
+
+                    # NOUVEAU : Vérifier si le fichier est verrouillé
+                    try:
+                        # Essayer d'ouvrir en mode écriture pour tester le verrouillage
+                        with open(db_path, 'a'):
+                            st.write("• Statut fichier: ✅ Accessible")
+                    except PermissionError:
+                        st.write("• Statut fichier: 🔒 Verrouillé par un processus")
+                    except Exception as e:
+                        st.write(f"• Statut fichier: ❓ Erreur - {e}")
 
                     # Tester la connexion à la DB
                     try:
                         import sqlite3
-                        with sqlite3.connect("data/kolet_dashboard.db") as conn:
+                        with sqlite3.connect(db_path, timeout=1) as conn:
                             cursor = conn.cursor()
                             cursor.execute("SELECT COUNT(*) FROM campaign_data")
                             count = cursor.fetchone()[0]
@@ -226,7 +289,22 @@ def render_welcome_screen():
 
 
 def main():
-    """Fonction principale de l'application avec cache management"""
+    """Fonction principale de l'application avec gestion reset DB"""
+
+    # NOUVEAU : Vérifier le signal de reset au démarrage
+    reset_signal_path = "data/.reset_signal"
+    if os.path.exists(reset_signal_path):
+        try:
+            db_path = "data/kolet_dashboard.db"
+            if os.path.exists(db_path):
+                os.remove(db_path)
+                st.success("✅ Base de données supprimée au démarrage!")
+
+            # Supprimer le fichier signal
+            os.remove(reset_signal_path)
+
+        except Exception as e:
+            st.error(f"Erreur lors du reset au démarrage: {e}")
 
     # Configuration supplémentaire pour éliminer les espaces blancs
     st.markdown("""
@@ -320,7 +398,7 @@ def main():
     # Ajouter les contrôles de debug
     add_debug_controls()
 
-    # Toujours afficher la sidebar, même sans base de données
+    # Render sidebar
     try:
         sidebar_params = render_sidebar(data_loader)
     except Exception as e:
@@ -423,7 +501,7 @@ def main():
         except Exception as e:
             st.error(f"❌ Erreur KPI principaux: {str(e)}")
 
-        # Section Comparaison par Type de Campagne (SIMPLIFIÉE)
+        # Section Comparaison par Type de Campagne
         try:
             if not processed_data.get('campaign_types', pd.DataFrame()).empty:
                 st.markdown("---")
@@ -431,22 +509,20 @@ def main():
                 # Générer seulement le résumé (pas d'insights ni recommandations)
                 campaign_summary = data_processor.get_campaign_type_summary(processed_data['campaign_types'])
 
-                # Afficher seulement la comparaison (pas les autres sections)
                 render_campaign_type_comparison(
                     processed_data['campaign_types'],
-                    campaign_summary
+                    campaign_summary,
+                    processed_data['raw']  # NOUVEAU : Ajouter les données brutes
                 )
             else:
                 st.info("💡 Configurez vos campagnes pour voir l'analyse par type (branding, acquisition, retargeting)")
         except Exception as e:
             st.error(f"❌ Erreur comparaison campagnes: {str(e)}")
 
-        # AJOUTER CETTE NOUVELLE SECTION (ne pas remplacer l'ancienne)
-        try:
-            st.markdown("---")
-            render_partner_performance_table(processed_data)
-        except Exception as e:
-            st.error(f"❌ Erreur performance partenaires: {str(e)}")
+        # SUPPRIMÉ : Section Performance par Partenaire
+        # Cette section a été complètement retirée
+
+        st.markdown("---")
 
         # Section Funnel d'acquisition
         try:
