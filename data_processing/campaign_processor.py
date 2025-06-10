@@ -100,6 +100,8 @@ class CampaignProcessor(BaseProcessor):
             'cost': 'sum',
             'impressions': 'sum',
             'clicks': 'sum',
+            'purchases': 'sum',  # ← AJOUTÉ pour les campagnes Web
+            'revenue': 'sum',  # ← AJOUTÉ pour les campagnes Web
             'campaign_name': 'nunique'
         }).reset_index()
 
@@ -203,6 +205,8 @@ class CampaignProcessor(BaseProcessor):
         # Créer le DataFrame final
         campaign_analysis = []
 
+        # FONCTION: _merge_campaign_data()
+
         for campaign_type, channel_type in all_combinations:
             # Données pub pour cette combinaison
             pub_row = advertising_agg[
@@ -220,25 +224,27 @@ class CampaignProcessor(BaseProcessor):
             final_row = {
                 'campaign_type': campaign_type,
                 'channel_type': channel_type,
-                # Données pub (ou 0 si pas de données)
                 'cost': pub_row['cost'].sum() if not pub_row.empty else 0,
                 'impressions': pub_row['impressions'].sum() if not pub_row.empty else 0,
                 'clicks': pub_row['clicks'].sum() if not pub_row.empty else 0,
                 'nb_campaigns': pub_row['campaign_name'].sum() if not pub_row.empty else 0,
-                # Données conv (ou 0 si pas de données)
                 'installs': conv_row['installs'].sum() if not conv_row.empty else 0,
                 'opens': conv_row['opens'].sum() if not conv_row.empty else 0,
                 'login': conv_row['login'].sum() if not conv_row.empty else 0,
-                'purchases': conv_row['purchases'].sum() if not conv_row.empty else 0,
-                'revenue': conv_row['revenue'].sum() if not conv_row.empty else 0,
             }
 
-            # Ajouter add_to_cart pour web
+            # CORRECTION WEB : Pour les campagnes Web, purchases et revenue viennent de Google Ads !
             if channel_type == 'web':
-                final_row['add_to_cart'] = conv_row[
-                    'add_to_cart'].sum() if not conv_row.empty and 'add_to_cart' in conv_row.columns else final_row[
-                                                                                                              'purchases'] * 3
+                # Pour Web : purchases et revenue viennent des données publicitaires (Google Ads)
+                final_row['purchases'] = pub_row[
+                    'purchases'].sum() if not pub_row.empty and 'purchases' in pub_row.columns else 0
+                final_row['revenue'] = pub_row[
+                    'revenue'].sum() if not pub_row.empty and 'revenue' in pub_row.columns else 0
+                final_row['add_to_cart'] = final_row['purchases'] * 3  # Estimation basée sur purchases
             else:
+                # Pour App : purchases et revenue viennent de Branch.io
+                final_row['purchases'] = conv_row['purchases'].sum() if not conv_row.empty else 0
+                final_row['revenue'] = conv_row['revenue'].sum() if not conv_row.empty else 0
                 final_row['add_to_cart'] = 0
 
             campaign_analysis.append(final_row)

@@ -51,42 +51,60 @@ class FunnelProcessor(BaseProcessor):
 
     def create_web_funnel_data(self, google_ads_data: pd.DataFrame) -> pd.DataFrame:
         """
-        Crée les données du funnel Web avec prise en compte de la classification des campagnes
-
-        Logique :
-        - Toutes les données viennent de Google Ads classifié "web"
+        Crée les données de funnel Web à partir des données Google Ads
+        ✅ VERSION CORRIGÉE - Utilise les vraies valeurs add_to_cart
         """
+
         if google_ads_data.empty:
+            print("  ⚠️ Aucune donnée Google Ads fournie")
             return pd.DataFrame()
 
-        # Filtrer seulement les campagnes classifiées "web"
+        # Filtrer les campagnes Web Google Ads
         web_google_ads = google_ads_data[
             (google_ads_data['channel_type'] == 'web') |
-            (google_ads_data['channel_type'].isna())  # Inclure les non-classifiées par défaut
+            (google_ads_data['channel_type'].isna())
             ].copy()
 
         if web_google_ads.empty:
             print("  ⚠️ Aucune campagne Google Ads classifiée 'web'")
             return pd.DataFrame()
 
-        # Grouper par date pour le funnel web
-        web_funnel = web_google_ads.groupby('date').agg({
+        # Préparer le dictionnaire d'agrégation
+        agg_dict = {
             'impressions': 'sum',
             'clicks': 'sum',
             'cost': 'sum',
             'purchases': 'sum',
             'revenue': 'sum'
-        }).reset_index()
+        }
 
-        # Ajouter add_to_cart si pas présent (estimation)
+        # ✅ CORRECTION PRINCIPALE : Vérifier si add_to_cart existe AVANT l'agrégation
+        if 'add_to_cart' in web_google_ads.columns:
+            agg_dict['add_to_cart'] = 'sum'
+            print("  📊 add_to_cart incluse dans l'agrégation")
+        else:
+            print("  ❌ add_to_cart manquante dans les données web")
+
+        # Agrégation par date
+        web_funnel = web_google_ads.groupby('date').agg(agg_dict).reset_index()
+
+        # ✅ CORRECTION : Ne plus estimer add_to_cart si elle existe déjà
         if 'add_to_cart' not in web_funnel.columns:
+            # Seulement estimer si la colonne n'existe vraiment pas
             web_funnel['add_to_cart'] = (web_funnel['purchases'] * 3).round().astype(int)
+            print("  📊 add_to_cart estimée (colonne manquante)")
+        else:
+            # Vérifier si on a des vraies valeurs
+            total_cart = web_funnel['add_to_cart'].sum()
+            if total_cart > 0:
+                print(f"  ✅ add_to_cart RÉELLES utilisées: {total_cart}")
+            else:
+                print("  ⚠️ add_to_cart présente mais valeurs nulles")
 
-        # Calculer les métriques du funnel web
+        # Calculer les métriques Web
         web_funnel = self._calculate_web_funnel_metrics(web_funnel)
         web_funnel['channel'] = 'Web'
 
-        print(f"  ✅ Funnel web créé: {len(web_funnel)} lignes")
         return web_funnel
 
     def _aggregate_branch_data(self, app_branch: pd.DataFrame) -> pd.DataFrame:

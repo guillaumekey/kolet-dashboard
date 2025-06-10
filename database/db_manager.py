@@ -37,6 +37,7 @@ class DatabaseManager:
                     revenue REAL DEFAULT 0,
                     opens INTEGER DEFAULT 0,
                     login INTEGER DEFAULT 0,
+                    add_to_cart INTEGER DEFAULT 0,
                     ad_partner TEXT DEFAULT '',  -- Pour Branch.io et ASA
                     campaign_status TEXT DEFAULT '',  -- NOUVEAU : Pour ASA
                     ad_group_name TEXT DEFAULT '',    -- NOUVEAU : Pour ASA  
@@ -125,8 +126,8 @@ class DatabaseManager:
                 INSERT INTO campaign_data 
                 (campaign_name, source, platform, date, impressions, clicks, cost, 
                  installs, purchases, revenue, opens, login, ad_partner, 
-                 campaign_status, ad_group_name, new_downloads, redownloads, import_batch)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 campaign_status,add_to_cart, ad_group_name, new_downloads, redownloads, import_batch)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
 
             records = []
@@ -145,7 +146,8 @@ class DatabaseManager:
                     row.get('opens', 0),
                     row.get('login', 0),
                     row.get('ad_partner', ''),
-                    row.get('campaign_status', ''),  # NOUVEAU
+                    row.get('campaign_status', ''),
+                    row.get('add_to_cart', 0),# NOUVEAU
                     row.get('ad_group_name', ''),  # NOUVEAU
                     row.get('new_downloads', 0),  # NOUVEAU
                     row.get('redownloads', 0),  # NOUVEAU

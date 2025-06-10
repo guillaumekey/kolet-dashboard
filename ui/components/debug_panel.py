@@ -33,14 +33,6 @@ def render_debug_panel(data: pd.DataFrame, date_range: Tuple[datetime, datetime]
         st.write(f"• **Période sélectionnée**: {date_range[0]} à {date_range[1]}")
         st.write(f"• **Jours inclus**: {(date_range[1] - date_range[0]).days + 1}")
 
-        # Comparer avec la période Branch.io d'origine
-        branch_start = datetime(2025, 5, 16).date()
-        branch_end = datetime(2025, 5, 30).date()
-
-        if date_range[0] != branch_start or date_range[1] != branch_end:
-            st.warning(f"⚠️ Période différente de Branch.io original ({branch_start} à {branch_end})")
-            st.info("💡 Pour correspondre aux données Branch.io, utilisez: 2025-05-16 à 2025-05-30")
-
         st.write("**Colonnes disponibles dans les données:**")
         available_columns = list(data.columns)
         st.write(f"• Colonnes: {', '.join(available_columns)}")

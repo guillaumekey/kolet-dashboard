@@ -25,6 +25,7 @@ from ui.components.campaign_type_comparison import (
 )
 # SUPPRIMÉ : Import de partner_performance
 
+
 # Configuration de la page
 st.set_page_config(
     page_title="Kolet - Dashboard Marketing",
@@ -32,7 +33,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 
 def add_debug_controls():
     """Ajoute des contrôles de debug pour vider le cache et reset l'application"""
@@ -526,7 +526,7 @@ def main():
 
         # Section Funnel d'acquisition
         try:
-            render_acquisition_funnel(processed_data['app'], processed_data['web'])
+            render_acquisition_funnel(processed_data['app'], processed_data['web'], processed_data)
         except Exception as e:
             st.error(f"❌ Erreur funnel d'acquisition: {str(e)}")
 

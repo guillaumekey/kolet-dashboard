@@ -30,6 +30,7 @@ class DataLoader:
                 'clicks': 'clicks',
                 'installs': 'installs',
                 'purchase': 'purchases',
+                'add to cart': 'add_to_cart',
                 'conv. value': 'revenue',
 
                 # Variantes courantes
@@ -419,7 +420,7 @@ class DataLoader:
         df_clean = df.copy()
 
         # Nettoyer les noms de colonnes
-        df_clean.columns = df_clean.columns.str.lower().str.strip()
+        df_clean.columns = df_clean.columns.str.replace('\u0000', '').str.lower().str.strip()
 
         # Supprimer les lignes vides
         df_clean = df_clean.dropna(how='all')
@@ -472,6 +473,21 @@ class DataLoader:
 
         available_cols = df_clean.columns.tolist()
         print(f"    • Colonnes disponibles: {available_cols}")
+
+        # ✅ AJOUTEZ CES LIGNES DE DEBUG :
+        print(f"    🔍 DEBUG COLONNES BRUTES:")
+        for i, col in enumerate(available_cols):
+            print(f"      [{i}] '{col}' (type: {type(col)}, repr: {repr(col)})")
+            # Vérifier si c'est Add to Cart
+            if 'add' in str(col).lower() and 'cart' in str(col).lower():
+                print(f"      ✅ TROUVÉ ADD TO CART : {repr(col)}")
+
+        # Chercher spécifiquement toutes les variantes de Add to Cart
+        cart_candidates = [col for col in available_cols
+                           if ('add' in str(col).lower() and 'cart' in str(col).lower())
+                           or 'panier' in str(col).lower()]
+
+        print(f"    🛒 Candidats Add to Cart: {cart_candidates}")
 
         # Mapping intelligent par similarité
         smart_mapping = {}
@@ -532,6 +548,12 @@ class DataLoader:
                 print(f"    • {col} → revenue")
                 break
 
+        for col in available_cols:
+            if ('add to cart' in col.lower() or 'add_to_cart' in col.lower() or 'ajout' in col.lower()) and 'add_to_cart' not in smart_mapping.values():
+                smart_mapping[col] = 'add_to_cart'
+                print(f"    • {col} → add_to_cart")
+                break
+
         # Appliquer le mapping
         df_clean = df_clean.rename(columns=smart_mapping)
         print(f"    ✅ Mapping appliqué: {smart_mapping}")
@@ -562,7 +584,7 @@ class DataLoader:
     def _clean_numeric_values(self, df: pd.DataFrame, file_type: str) -> pd.DataFrame:
         """Nettoie les valeurs numériques"""
         numeric_columns = ['cost', 'impressions', 'clicks', 'installs', 'purchases', 'revenue', 'opens',
-                           'new_downloads', 'redownloads', 'login']
+                           'new_downloads', 'redownloads','add_to_cart','login']
 
         for col in numeric_columns:
             if col in df.columns:
@@ -576,6 +598,26 @@ class DataLoader:
 
                 # Convertir en numérique
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+                if 'add_to_cart' in df.columns:
+                    print(f"🛒 DEBUG add_to_cart après nettoyage:")
+                    print(f"  • Type de données: {df['add_to_cart'].dtype}")
+                    print(f"  • Valeurs uniques: {df['add_to_cart'].unique()}")
+                    print(f"  • Total: {df['add_to_cart'].sum()}")
+
+                    # Voir les valeurs non-zéro
+                    non_zero = df[df['add_to_cart'] > 0]
+                    print(f"  • Lignes avec add_to_cart > 0: {len(non_zero)}")
+
+                    if len(non_zero) > 0:
+                        print(f"  ✅ Échantillon non-zéro:")
+                        for _, row in non_zero.head(3).iterrows():
+                            print(f"    Campaign: {row['campaign_name']}, add_to_cart: {row['add_to_cart']}")
+                    else:
+                        print(f"  ❌ Toutes les valeurs sont 0")
+
+                        # Voir les valeurs brutes avant nettoyage
+                        print(f"  🔍 Colonnes disponibles: {list(df.columns)}")
 
         return df
 

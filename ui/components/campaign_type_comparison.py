@@ -399,8 +399,6 @@ def _render_campaign_detail_merged(campaign_type: str, channel_type: str, raw_da
 
     print(f"🔍 FUSION DONNÉES CORRIGÉE - {campaign_type} {channel_type}")
 
-    # GARDER LE DIAGNOSTIC POUR VÉRIFIER
-    st.write("🔍 **DIAGNOSTIC RAPIDE**")
     total_installs_by_source = {}
 
     for source_name, source_data in raw_data.items():
@@ -415,10 +413,8 @@ def _render_campaign_detail_merged(campaign_type: str, channel_type: str, raw_da
         if not filtered.empty:
             total_installs = filtered['installs'].sum()
             total_installs_by_source[source_name] = total_installs
-            st.write(f"**{source_name}:** {total_installs:,} installs")
 
     total_installs_diagnostic = sum(total_installs_by_source.values())
-    st.write(f"**TOTAL ATTENDU:** {total_installs_diagnostic:,} installs")
 
     # Collecter les données par source
     all_classified_data = pd.DataFrame()
@@ -460,30 +456,98 @@ def _render_campaign_detail_merged(campaign_type: str, channel_type: str, raw_da
         st.info(f"📭 Aucune campagne trouvée pour {campaign_type} {channel_type}")
         return
 
-    # Vérification finale
-    total_installs_tableau = campaign_totals['installs'].sum()
-    st.success(f"✅ **TABLEAU FINAL:** {total_installs_tableau:,} installs")
-
-    if total_installs_tableau != total_installs_diagnostic:
-        st.error(f"❌ ERREUR: Différence de {total_installs_diagnostic - total_installs_tableau:,} installs!")
-
     # Affichage du tableau
     _display_merged_campaign_table(campaign_totals, channel_type, campaign_type)
 
-def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: str, campaign_type: str):
-    """MODIFIÉ : Affiche le tableau des campagnes avec données cohérentes"""
 
-    # Calculer les métriques
-    campaign_data['ctr'] = (campaign_data['clicks'] / campaign_data['impressions'] * 100).fillna(0)
-    campaign_data['roas'] = (campaign_data['revenue'] / campaign_data['cost']).fillna(0)
+import re
+
+
+def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: str, campaign_type: str):
+    """MODIFIÉ : Affiche le tableau des campagnes avec système de filtres regex"""
+
+    # ===== SYSTÈME DE FILTRES REGEX =====
+    st.markdown("##### 🔍 Filtres avancés")
+
+    filter_col1, filter_col2 = st.columns(2)
+
+    with filter_col1:
+        st.markdown("**📥 Inclusion (Regex)**")
+        include_campaign = st.text_input(
+            "Inclure campagnes (regex)",
+            value="",
+            help="Ex: SEA.*iOS|Android pour inclure les campagnes contenant 'SEA' puis 'iOS' ou 'Android'",
+            key=f"include_campaign_{campaign_type}_{channel_type}"
+        )
+        include_source = st.text_input(
+            "Inclure sources (regex)",
+            value="",
+            help="Ex: google_ads|asa pour inclure Google Ads et ASA",
+            key=f"include_source_{campaign_type}_{channel_type}"
+        )
+
+    with filter_col2:
+        st.markdown("**📤 Exclusion (Regex)**")
+        exclude_campaign = st.text_input(
+            "Exclure campagnes (regex)",
+            value="",
+            help="Ex: test|demo pour exclure les campagnes de test",
+            key=f"exclude_campaign_{campaign_type}_{channel_type}"
+        )
+        exclude_source = st.text_input(
+            "Exclure sources (regex)",
+            value="",
+            help="Ex: branch pour exclure Branch.io",
+            key=f"exclude_source_{campaign_type}_{channel_type}"
+        )
+
+    # ===== APPLICATION DES FILTRES =====
+    filtered_data = campaign_data.copy()
+
+    try:
+        # Filtres d'inclusion sur campagnes
+        if include_campaign.strip():
+            pattern = re.compile(include_campaign, re.IGNORECASE)
+            filtered_data = filtered_data[filtered_data['campaign_name'].str.contains(pattern, na=False)]
+
+        # Filtres d'inclusion sur sources
+        if include_source.strip():
+            pattern = re.compile(include_source, re.IGNORECASE)
+            filtered_data = filtered_data[filtered_data['data_source'].str.contains(pattern, na=False)]
+
+        # Filtres d'exclusion sur campagnes
+        if exclude_campaign.strip():
+            pattern = re.compile(exclude_campaign, re.IGNORECASE)
+            filtered_data = filtered_data[~filtered_data['campaign_name'].str.contains(pattern, na=False)]
+
+        # Filtres d'exclusion sur sources
+        if exclude_source.strip():
+            pattern = re.compile(exclude_source, re.IGNORECASE)
+            filtered_data = filtered_data[~filtered_data['data_source'].str.contains(pattern, na=False)]
+
+    except re.error as e:
+        st.error(f"❌ Erreur dans l'expression régulière: {e}")
+        filtered_data = campaign_data.copy()
+
+    # Afficher le nombre de résultats
+    if len(filtered_data) != len(campaign_data):
+        st.info(f"🔍 **Filtre appliqué**: {len(filtered_data)} campagnes affichées sur {len(campaign_data)} total")
+
+    if filtered_data.empty:
+        st.warning("❌ Aucune campagne ne correspond aux filtres appliqués")
+        return
+
+    # ===== CALCUL DES MÉTRIQUES SUR DONNÉES FILTRÉES =====
+    filtered_data['ctr'] = (filtered_data['clicks'] / filtered_data['impressions'] * 100).fillna(0)
+    filtered_data['roas'] = (filtered_data['revenue'] / filtered_data['cost']).fillna(0)
 
     if channel_type == 'app':
-        campaign_data['cpa'] = (campaign_data['cost'] / campaign_data['installs']).fillna(0)
-        campaign_data['conversion_rate'] = (campaign_data['installs'] / campaign_data['clicks'] * 100).fillna(0)
-        campaign_data['open_rate'] = (campaign_data['opens'] / campaign_data['installs'] * 100).fillna(0)
-        campaign_data['purchase_rate'] = (campaign_data['purchases'] / campaign_data['installs'] * 100).fillna(0)
+        filtered_data['cpa'] = (filtered_data['cost'] / filtered_data['installs']).fillna(0)
+        filtered_data['conversion_rate'] = (filtered_data['installs'] / filtered_data['clicks'] * 100).fillna(0)
+        filtered_data['open_rate'] = (filtered_data['opens'] / filtered_data['installs'] * 100).fillna(0)
+        filtered_data['purchase_rate'] = (filtered_data['purchases'] / filtered_data['installs'] * 100).fillna(0)
 
-        # Colonnes App (AVEC LOGINS)
+        # Colonnes App
         display_columns = ['campaign_name', 'data_source', 'cost', 'impressions', 'clicks',
                            'installs', 'opens', 'login', 'purchases', 'revenue', 'ctr', 'conversion_rate',
                            'open_rate', 'purchase_rate', 'cpa', 'roas']
@@ -500,19 +564,29 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
             "purchases": st.column_config.NumberColumn("Achats", format="%d"),
             "revenue": st.column_config.NumberColumn("Revenus", format="%.2f €"),
             "ctr": st.column_config.NumberColumn("CTR", format="%.2f%%"),
-            "conversion_rate": st.column_config.NumberColumn("Taux Conv.", format="%.2f%%"),
-            "open_rate": st.column_config.NumberColumn("Taux Open", format="%.2f%%"),
-            "purchase_rate": st.column_config.NumberColumn("Taux Achat", format="%.2f%%"),
+            "conversion_rate": st.column_config.NumberColumn("Taux Conv.", format="%.2f%%", help="Installs / Clics"),
+            "open_rate": st.column_config.NumberColumn("Taux Open", format="%.2f%%", help="Opens / Installs"),
+            "purchase_rate": st.column_config.NumberColumn("Taux Achat", format="%.2f%%", help="Achats / Installs"),
             "cpa": st.column_config.NumberColumn("CPA", format="%.2f €"),
             "roas": st.column_config.NumberColumn("ROAS", format="%.2f")
         }
+
     else:  # web
-        campaign_data['cpa'] = (campaign_data['cost'] / campaign_data['purchases']).fillna(0)
-        campaign_data['conversion_rate'] = (campaign_data['purchases'] / campaign_data['clicks'] * 100).fillna(0)
+        filtered_data['cpa'] = (filtered_data['cost'] / filtered_data['purchases']).fillna(0)
+        filtered_data['conversion_rate'] = (filtered_data['purchases'] / filtered_data['clicks'] * 100).fillna(0)
+
+        # CORRECTION : Créer add_to_cart s'il n'existe pas
+        if 'add_to_cart' not in filtered_data.columns:
+            filtered_data['add_to_cart'] = filtered_data['purchases'] * 3
+
+        filtered_data['cart_rate'] = (filtered_data['add_to_cart'] / filtered_data['clicks'] * 100).fillna(0)
+        filtered_data['cart_to_purchase_rate'] = (
+                    filtered_data['purchases'] / filtered_data['add_to_cart'] * 100).fillna(0)
 
         # Colonnes Web
         display_columns = ['campaign_name', 'data_source', 'cost', 'impressions', 'clicks',
-                           'purchases', 'revenue', 'ctr', 'conversion_rate', 'cpa', 'roas']
+                           'add_to_cart', 'purchases', 'revenue', 'ctr', 'conversion_rate',
+                           'cart_rate', 'cart_to_purchase_rate', 'cpa', 'roas']
 
         column_config = {
             "campaign_name": st.column_config.TextColumn("Nom Campagne", width="large"),
@@ -520,24 +594,23 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
             "cost": st.column_config.NumberColumn("Coût", format="%.2f €"),
             "impressions": st.column_config.NumberColumn("Impressions", format="%d"),
             "clicks": st.column_config.NumberColumn("Clics", format="%d"),
+            "add_to_cart": st.column_config.NumberColumn("Ajouts Panier", format="%d"),
             "purchases": st.column_config.NumberColumn("Achats", format="%d"),
             "revenue": st.column_config.NumberColumn("Revenus", format="%.2f €"),
             "ctr": st.column_config.NumberColumn("CTR", format="%.2f%%"),
-            "conversion_rate": st.column_config.NumberColumn("Taux Conv.", format="%.2f%%"),
+            "conversion_rate": st.column_config.NumberColumn("Taux Achat", format="%.2f%%", help="Achats / Clics"),
+            "cart_rate": st.column_config.NumberColumn("Taux Panier", format="%.2f%%", help="Paniers / Clics"),
+            "cart_to_purchase_rate": st.column_config.NumberColumn("Finalisation", format="%.2f%%",
+                                                                   help="Achats / Paniers"),
             "cpa": st.column_config.NumberColumn("CPA", format="%.2f €"),
             "roas": st.column_config.NumberColumn("ROAS", format="%.2f")
         }
 
-    # Filtrer les colonnes disponibles et TRIER PAR COÛT DÉCROISSANT
-    available_columns = [col for col in display_columns if col in campaign_data.columns]
-    display_data = campaign_data[available_columns].sort_values('cost', ascending=False)
+    # Filtrer les colonnes disponibles
+    available_columns = [col for col in display_columns if col in filtered_data.columns]
+    display_data = filtered_data[available_columns]
 
-    # DEBUG : Afficher les totaux calculés
-    total_installs_detail = display_data['installs'].sum() if 'installs' in display_data.columns else 0
-    print(f"🔍 DEBUG AFFICHAGE:")
-    print(f"  • Campagnes affichées: {len(display_data)}")
-    print(f"  • Total installs affiché: {total_installs_detail}")
-
+    # ===== AFFICHAGE DU TABLEAU =====
     st.dataframe(
         display_data,
         column_config=column_config,
@@ -545,7 +618,9 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
         hide_index=True
     )
 
-    # Statistiques consolidées MODIFIÉES
+    # ===== KPI FILTRÉS (TOTAUX RECALCULÉS) =====
+    st.markdown("##### 📊 Totaux (données filtrées)")
+
     if channel_type == 'app':
         col1, col2, col3, col4, col5, col6 = st.columns(6)
 
@@ -569,7 +644,7 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
             st.metric("💵 Revenus Total", f"{total_revenue:,.2f}€")
 
         with col6:
-            avg_roas = display_data['roas'].mean()
+            avg_roas = display_data['roas'].mean() if len(display_data) > 0 else 0
             st.metric("📈 ROAS Moyen", f"{avg_roas:.2f}")
 
     else:  # web
@@ -591,19 +666,35 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
             st.metric("💵 Revenus Total", f"{total_revenue:,.2f}€")
 
         with col5:
-            avg_roas = display_data['roas'].mean()
+            avg_roas = display_data['roas'].mean() if len(display_data) > 0 else 0
             st.metric("📈 ROAS Moyen", f"{avg_roas:.2f}")
+
+    # ===== EXEMPLES DE REGEX =====
+    with st.expander("💡 Exemples de regex", expanded=False):
+        st.markdown("""
+        **Inclusion exemples :**
+        - `SEA.*iOS` : Campagnes contenant "SEA" suivi de "iOS"
+        - `google_ads|asa` : Sources Google Ads OU Apple Search Ads
+        - `^02` : Campagnes commençant par "02"
+        - `pilgrimage|install` : Campagnes contenant "pilgrimage" OU "install"
+
+        **Exclusion exemples :**
+        - `test|demo` : Exclure les campagnes de test
+        - `branch` : Exclure la source Branch.io
+        - `Génériques?` : Exclure "Générique" ou "Génériques"
+        - `\\.com` : Exclure les campagnes contenant ".com"
+        """)
 
     # Message d'information sur la consolidation
     st.info(f"📅 **Données consolidées** sur la période sélectionnée - Une ligne par campagne avec totaux agrégés")
 
-    # Bouton d'export
-    if st.button(f"📥 Exporter {campaign_type} {channel_type}", key=f"export_{campaign_type}_{channel_type}"):
+    # Bouton d'export (données filtrées)
+    if st.button(f"📥 Exporter {campaign_type} {channel_type} (filtrées)", key=f"export_{campaign_type}_{channel_type}"):
         csv = display_data.to_csv(index=False)
         st.download_button(
-            label="Télécharger CSV consolidé",
+            label="Télécharger CSV consolidé (filtrées)",
             data=csv,
-            file_name=f"detail_consolide_{campaign_type}_{channel_type}.csv",
+            file_name=f"detail_consolide_{campaign_type}_{channel_type}_filtrees.csv",
             mime="text/csv",
             key=f"download_{campaign_type}_{channel_type}"
         )
@@ -612,7 +703,6 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
     if st.button(f"🔼 Masquer le détail", key=f"hide_{campaign_type}_{channel_type}"):
         st.session_state[f'show_detail_{channel_type}_{campaign_type}'] = False
         st.rerun()
-
 
 def render_campaign_type_insights(insights: list):
     """
