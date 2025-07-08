@@ -4,25 +4,40 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import List, Dict  # Ajout des imports typing manquants
 
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from typing import List, Dict
 
 def render_temporal_performance(data):
-    """Affichage des performances temporelles"""
+    """Affichage des performances temporelles avec tous les graphiques"""
     st.subheader("📊 Performances Journalières")
 
-    # Grouper par date
+    # Grouper par date - inclure toutes les métriques nécessaires
     daily_data = data.groupby('date').agg({
         'cost': 'sum',
         'impressions': 'sum',
         'clicks': 'sum',
         'installs': 'sum',
-        'purchases': 'sum'
+        'purchases': 'sum',
+        'login': 'sum',
+        'revenue': 'sum'
     }).reset_index()
 
     daily_data['date'] = pd.to_datetime(daily_data['date'])
     daily_data = daily_data.sort_values('date')
 
-    # Graphique des métriques principales
-    fig = make_subplots(
+    # Calcul des métriques dérivées
+    daily_data['cpi'] = daily_data['cost'] / daily_data['installs'].replace(0, 1)
+    daily_data['roas'] = daily_data['revenue'] / daily_data['cost'].replace(0, 1)
+
+    # Remplacer les valeurs infinies par 0
+    daily_data['cpi'] = daily_data['cpi'].replace([float('inf'), -float('inf')], 0)
+    daily_data['roas'] = daily_data['roas'].replace([float('inf'), -float('inf')], 0)
+
+    # ============ GRAPHIQUES PRINCIPAUX (4 existants) ============
+    fig_main = make_subplots(
         rows=2, cols=2,
         subplot_titles=('Coût', 'Impressions', 'Clics', 'Installations'),
         specs=[[{"secondary_y": False}, {"secondary_y": False}],
@@ -30,36 +45,104 @@ def render_temporal_performance(data):
     )
 
     # Coût
-    fig.add_trace(
+    fig_main.add_trace(
         go.Scatter(x=daily_data['date'], y=daily_data['cost'],
                    name='Coût', line=dict(color='#e74c3c')),
         row=1, col=1
     )
 
     # Impressions
-    fig.add_trace(
+    fig_main.add_trace(
         go.Scatter(x=daily_data['date'], y=daily_data['impressions'],
                    name='Impressions', line=dict(color='#3498db')),
         row=1, col=2
     )
 
     # Clics
-    fig.add_trace(
+    fig_main.add_trace(
         go.Scatter(x=daily_data['date'], y=daily_data['clicks'],
                    name='Clics', line=dict(color='#2ecc71')),
         row=2, col=1
     )
 
     # Installations
-    fig.add_trace(
+    fig_main.add_trace(
         go.Scatter(x=daily_data['date'], y=daily_data['installs'],
                    name='Installations', line=dict(color='#9b59b6')),
         row=2, col=2
     )
 
-    fig.update_layout(height=600, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
+    fig_main.update_layout(
+        height=600,
+        showlegend=False
+    )
 
+    st.plotly_chart(fig_main, use_container_width=True)
+
+    # ============ NOUVEAUX GRAPHIQUES (5 nouveaux) ============
+
+    # Première ligne : Purchases, Logins, Revenu
+    fig_secondary_1 = make_subplots(
+        rows=1, cols=3,
+        subplot_titles=('Purchases', 'Logins', 'Revenu'),
+        specs=[[{"secondary_y": False}, {"secondary_y": False}, {"secondary_y": False}]]
+    )
+
+    # Purchases
+    fig_secondary_1.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['purchases'],
+                   name='Purchases', line=dict(color='#f39c12')),
+        row=1, col=1
+    )
+
+    # Logins
+    fig_secondary_1.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['login'],
+                   name='Logins', line=dict(color='#1abc9c')),
+        row=1, col=2
+    )
+
+    # Revenu
+    fig_secondary_1.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['revenue'],
+                   name='Revenu', line=dict(color='#27ae60')),
+        row=1, col=3
+    )
+
+    fig_secondary_1.update_layout(
+        height=400,
+        showlegend=False
+    )
+
+    st.plotly_chart(fig_secondary_1, use_container_width=True)
+
+    # Deuxième ligne : CPI et ROAS
+    fig_secondary_2 = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=('CPI', 'ROAS'),
+        specs=[[{"secondary_y": False}, {"secondary_y": False}]]
+    )
+
+    # CPI
+    fig_secondary_2.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['cpi'],
+                   name='CPI', line=dict(color='#e67e22')),
+        row=1, col=1
+    )
+
+    # ROAS
+    fig_secondary_2.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['roas'],
+                   name='ROAS', line=dict(color='#8e44ad')),
+        row=1, col=2
+    )
+
+    fig_secondary_2.update_layout(
+        height=400,
+        showlegend=False
+    )
+
+    st.plotly_chart(fig_secondary_2, use_container_width=True)
 
 def _prepare_daily_data(data: pd.DataFrame) -> pd.DataFrame:
     """Prépare les données pour l'analyse temporelle"""
