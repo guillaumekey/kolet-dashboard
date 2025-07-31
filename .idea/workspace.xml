@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="569b4c83-6bce-4c8d-9b8d-b3117574d16f" name="Changes" comment="Mise à jour avec vision par campagne" />
+    <list default="true" id="569b4c83-6bce-4c8d-9b8d-b3117574d16f" name="Changes" comment="Mise à jour avec vision par campagne">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/components/campaign_type_comparison.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/components/campaign_type_comparison.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />

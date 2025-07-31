@@ -644,8 +644,9 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
             st.metric("💵 Revenus Total", f"{total_revenue:,.2f}€")
 
         with col6:
-            avg_roas = display_data['roas'].mean() if len(display_data) > 0 else 0
-            st.metric("📈 ROAS Moyen", f"{avg_roas:.2f}")
+            # ✅ CORRECTION: ROAS calculé sur les totaux, pas moyenne des ROAS
+            roas_correct = total_revenue / total_cost if total_cost > 0 else 0
+            st.metric("📈 ROAS Moyen", f"{roas_correct:.2f}")
 
     else:  # web
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -666,8 +667,12 @@ def _display_merged_campaign_table(campaign_data: pd.DataFrame, channel_type: st
             st.metric("💵 Revenus Total", f"{total_revenue:,.2f}€")
 
         with col5:
-            avg_roas = display_data['roas'].mean() if len(display_data) > 0 else 0
-            st.metric("📈 ROAS Moyen", f"{avg_roas:.2f}")
+            total_revenue = filtered_data['revenue'].sum()
+            st.metric("💵 Revenus Total", f"{total_revenue:,.2f}€")
+
+            # ✅ CORRECTION: ROAS calculé sur les totaux
+            roas_correct = total_revenue / total_cost if total_cost > 0 else 0
+            st.metric("📈 ROAS Moyen", f"{roas_correct:.2f}")
 
     # ===== EXEMPLES DE REGEX =====
     with st.expander("💡 Exemples de regex", expanded=False):
