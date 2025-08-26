@@ -1,17 +1,44 @@
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from typing import List, Dict  # Ajout des imports typing manquants
+# FICHIER COMPLET: temporal_charts.py avec TOUTES les fonctions existantes + filtres
+# Remplacez tout le contenu de votre fichier temporal_charts.py par ce code
 
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
+import re
 
-def render_temporal_performance(data):
-    """Affichage des performances temporelles avec tous les graphiques"""
+
+# ===== NOUVELLE FONCTION PRINCIPALE AVEC SUPPORT DES FILTRES =====
+def render_temporal_performance(data, date_range=None, campaign_types_data=None):
+    """
+    Fonction principale améliorée qui détecte si les filtres sont disponibles
+    et utilise la version appropriée
+
+    Args:
+        data: DataFrame consolidé
+        date_range: Tuple optionnel (date_debut, date_fin)
+        campaign_types_data: DataFrame optionnel avec les classifications
+    """
+    # Si les paramètres de filtrage sont fournis, utiliser la version avec filtres
+    if date_range is not None or campaign_types_data is not None:
+        # Assurer que date_range existe
+        if date_range is None:
+            if 'date' in data.columns:
+                date_range = (data['date'].min(), data['date'].max())
+            else:
+                date_range = (pd.Timestamp.now() - pd.Timedelta(days=30), pd.Timestamp.now())
+
+        # Appeler la version avec filtres
+        render_temporal_performance_with_filters(data, date_range, campaign_types_data)
+    else:
+        # Sinon, utiliser la version originale
+        render_temporal_performance_original(data)
+
+
+# ===== VERSION ORIGINALE (votre code actuel) =====
+def render_temporal_performance_original(data):
+    """Version originale de la fonction sans filtres"""
     st.subheader("📊 Performances Journalières")
 
     # Grouper par date - inclure toutes les métriques nécessaires
@@ -117,25 +144,36 @@ def render_temporal_performance(data):
     st.plotly_chart(fig_secondary_1, use_container_width=True)
 
     # Deuxième ligne : CPI et ROAS
+    # REMPLACEZ TOUTE CETTE SECTION :
+
+    # Vérifier quel type de campagnes on affiche
     fig_secondary_2 = make_subplots(
         rows=1, cols=2,
-        subplot_titles=('CPI', 'ROAS'),
+        subplot_titles=('CPI' if has_installs else 'CPA', 'ROAS'),
         specs=[[{"secondary_y": False}, {"secondary_y": False}]]
     )
 
-    # CPI
-    fig_secondary_2.add_trace(
-        go.Scatter(x=daily_data['date'], y=daily_data['cpi'],
-                   name='CPI', line=dict(color='#e67e22')),
-        row=1, col=1
-    )
+    # Premier graphique : CPI ou CPA selon le type
+    if has_installs and 'cpi' in daily_data.columns:
+        fig_secondary_2.add_trace(
+            go.Scatter(x=daily_data['date'], y=daily_data['cpi'],
+                       name='CPI', line=dict(color='#e67e22')),
+            row=1, col=1
+        )
+    elif 'cpa' in daily_data.columns:
+        fig_secondary_2.add_trace(
+            go.Scatter(x=daily_data['date'], y=daily_data['cpa'],
+                       name='CPA', line=dict(color='#e67e22')),
+            row=1, col=1
+        )
 
     # ROAS
-    fig_secondary_2.add_trace(
-        go.Scatter(x=daily_data['date'], y=daily_data['roas'],
-                   name='ROAS', line=dict(color='#8e44ad')),
-        row=1, col=2
-    )
+    if 'roas' in daily_data.columns:
+        fig_secondary_2.add_trace(
+            go.Scatter(x=daily_data['date'], y=daily_data['roas'],
+                       name='ROAS', line=dict(color='#8e44ad')),
+            row=1, col=2
+        )
 
     fig_secondary_2.update_layout(
         height=400,
@@ -144,20 +182,531 @@ def render_temporal_performance(data):
 
     st.plotly_chart(fig_secondary_2, use_container_width=True)
 
+
+# ===== NOUVELLE VERSION AVEC FILTRES =====
+def render_temporal_performance_with_filters(data: pd.DataFrame, date_range: Tuple,
+                                             campaign_types_data: Optional[pd.DataFrame] = None):
+    """
+    Version améliorée avec filtres avancés pour les performances journalières
+    """
+    st.subheader("📊 Performances Journalières")
+
+    # ===== SECTION FILTRES AVANCÉS =====
+    with st.expander("🔧 Filtres Avancés", expanded=False):
+        col1, col2, col3 = st.columns([2, 2, 1])
+
+        with col1:
+            st.markdown("**🔍 Filtrage par Nom de Campagne**")
+
+            # Mode de filtrage
+            filter_mode = st.radio(
+                "Mode de filtrage",
+                options=["Inclusion", "Exclusion"],
+                horizontal=True,
+                key="temporal_filter_mode",
+                help="Inclusion = garder seulement les campagnes qui matchent | Exclusion = retirer les campagnes qui matchent"
+            )
+
+            # Pattern regex
+            regex_pattern = st.text_input(
+                "Pattern Regex",
+                value="",
+                placeholder="Ex: SEA.*FR|App.*iOS|Top.*Destinations",
+                key="temporal_regex_pattern",
+                help="Utilisez | pour 'OU', .* pour 'n'importe quoi', ^ pour début, $ pour fin"
+            )
+
+            # Validation regex
+            regex_valid = True
+            if regex_pattern:
+                try:
+                    re.compile(regex_pattern)
+                    st.success("✅ Regex valide")
+                except re.error as e:
+                    st.error(f"❌ Regex invalide: {e}")
+                    regex_valid = False
+
+        with col2:
+            st.markdown("**🏷️ Filtrage par Type et Canal**")
+
+            # Types de campagne disponibles
+            available_types = ["branding", "acquisition", "retargeting"]
+            if campaign_types_data is not None and not campaign_types_data.empty:
+                if 'campaign_type' in campaign_types_data.columns:
+                    types_in_data = campaign_types_data['campaign_type'].dropna().unique().tolist()
+                    if types_in_data:
+                        available_types = types_in_data
+
+            selected_types = st.multiselect(
+                "Type de campagne",
+                options=available_types,
+                default=[],
+                key="temporal_campaign_types",
+                help="Laissez vide pour inclure tous les types"
+            )
+
+            # Canaux disponibles
+            available_channels = ["app", "web"]
+            if campaign_types_data is not None and not campaign_types_data.empty:
+                if 'platform_type' in campaign_types_data.columns:
+                    channels_in_data = campaign_types_data['platform_type'].dropna().unique().tolist()
+                    if channels_in_data:
+                        available_channels = channels_in_data
+
+            selected_channels = st.multiselect(
+                "Canal",
+                options=available_channels,
+                default=[],
+                key="temporal_channels",
+                help="Laissez vide pour inclure tous les canaux"
+            )
+
+        with col3:
+            st.markdown("**📅 Période Rapide**")
+
+            period_select = st.selectbox(
+                "Sélection rapide",
+                options=["Tout", "7 derniers jours", "14 derniers jours", "30 derniers jours", "Mois en cours"],
+                key="temporal_period_select"
+            )
+
+    # ===== APPLICATION DES FILTRES =====
+    filtered_data = apply_temporal_filters(
+        data=data,
+        campaign_types_data=campaign_types_data,
+        regex_pattern=regex_pattern if regex_valid else "",
+        filter_mode=filter_mode.lower(),
+        selected_types=selected_types,
+        selected_channels=selected_channels,
+        period_select=period_select,
+        date_range=date_range
+    )
+
+    # ===== AFFICHAGE DU RÉSUMÉ DES FILTRES =====
+    if regex_pattern or selected_types or selected_channels or period_select != "Tout":
+        with st.container():
+            st.markdown("---")
+
+            col_summary1, col_summary2, col_summary3, col_summary4 = st.columns(4)
+
+            with col_summary1:
+                if regex_pattern and regex_valid:
+                    st.info(f"🔍 Regex ({filter_mode}): `{regex_pattern}`")
+
+            with col_summary2:
+                if selected_types:
+                    st.info(f"🏷️ Types: {', '.join(selected_types)}")
+
+            with col_summary3:
+                if selected_channels:
+                    st.info(f"📱 Canaux: {', '.join(selected_channels)}")
+
+            with col_summary4:
+                if period_select != "Tout":
+                    st.info(f"📅 Période: {period_select}")
+
+            # Métriques de filtrage
+            # Métriques de filtrage
+            st.markdown("")
+            metric_col1, metric_col2, metric_col3, metric_col4, metric_col5, metric_col6 = st.columns(6)
+
+            with metric_col1:
+                nb_campaigns = filtered_data[
+                    'campaign_name'].nunique() if 'campaign_name' in filtered_data.columns else 0
+                st.metric("Campagnes filtrées", f"{nb_campaigns}")
+
+            with metric_col2:
+                nb_days = filtered_data['date'].nunique() if 'date' in filtered_data.columns else 0
+                st.metric("Jours affichés", f"{nb_days}")
+
+            with metric_col3:
+                total_cost = filtered_data['cost'].sum() if 'cost' in filtered_data.columns else 0
+                st.metric("Coût total", f"{total_cost:,.0f}€")
+
+            with metric_col4:
+                total_revenue = filtered_data['revenue'].sum() if 'revenue' in filtered_data.columns else 0
+                st.metric("Revenu total", f"{total_revenue:,.0f}€")
+
+            with metric_col5:
+                total_purchases = filtered_data['purchases'].sum() if 'purchases' in filtered_data.columns else 0
+                total_installs = filtered_data['installs'].sum() if 'installs' in filtered_data.columns else 0
+                total_login = filtered_data['login'].sum() if 'login' in filtered_data.columns else 0
+
+                # Afficher soit installs (pour App) soit purchases (pour Web) selon ce qui est pertinent
+                if total_installs > 0:
+                    st.metric("Installs/Logins", f"{total_installs:.0f}/{total_login:.0f}")
+                else:
+                    st.metric("Purchases", f"{total_purchases:.0f}")
+
+            with metric_col6:
+                # Calculer le ROAS
+                roas = (total_revenue / total_cost) if total_cost > 0 else 0
+                st.metric("ROAS", f"{roas:.2f}")
+
+            st.markdown("---")
+
+    # ===== AFFICHAGE DES GRAPHIQUES (réutilisation du code existant) =====
+    if filtered_data.empty:
+        st.warning("🔍 Aucune donnée trouvée avec les filtres appliqués")
+        return
+
+    # Grouper par date
+    daily_data = filtered_data.groupby('date').agg({
+        'cost': 'sum',
+        'impressions': 'sum',
+        'clicks': 'sum',
+        'installs': 'sum',
+        'purchases': 'sum',
+        'login': 'sum',
+        'revenue': 'sum'
+    }).reset_index()
+
+    daily_data['date'] = pd.to_datetime(daily_data['date'])
+    daily_data = daily_data.sort_values('date')
+
+    # PAR :
+    has_installs = daily_data['installs'].sum() > 0
+
+    if has_installs:
+        # Pour App : calculer CPI
+        daily_data['cpi'] = daily_data['cost'] / daily_data['installs'].replace(0, 1)
+        daily_data['cpi'] = daily_data['cpi'].replace([float('inf'), -float('inf')], 0)
+    else:
+        # Pour Web : calculer CPA
+        daily_data['cpa'] = daily_data['cost'] / daily_data['purchases'].replace(0, 1)
+        daily_data['cpa'] = daily_data['cpa'].replace([float('inf'), -float('inf')], 0)
+
+    # ROAS se calcule toujours
+    daily_data['roas'] = daily_data['revenue'] / daily_data['cost'].replace(0, 1)
+    daily_data['roas'] = daily_data['roas'].replace([float('inf'), -float('inf')], 0)
+
+    # Graphiques principaux (4 graphiques)
+    fig_main = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=('Coût', 'Impressions', 'Clics', 'Installations'),
+        specs=[[{"secondary_y": False}, {"secondary_y": False}],
+               [{"secondary_y": False}, {"secondary_y": False}]]
+    )
+
+    fig_main.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['cost'],
+                   name='Coût', line=dict(color='#e74c3c')),
+        row=1, col=1
+    )
+
+    fig_main.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['impressions'],
+                   name='Impressions', line=dict(color='#3498db')),
+        row=1, col=2
+    )
+
+    fig_main.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['clicks'],
+                   name='Clics', line=dict(color='#2ecc71')),
+        row=2, col=1
+    )
+
+    fig_main.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['installs'],
+                   name='Installations', line=dict(color='#9b59b6')),
+        row=2, col=2
+    )
+
+    fig_main.update_layout(height=600, showlegend=False)
+    st.plotly_chart(fig_main, use_container_width=True)
+
+    # Graphiques secondaires (Purchases, Logins, Revenu)
+    fig_secondary_1 = make_subplots(
+        rows=1, cols=3,
+        subplot_titles=('Purchases', 'Logins', 'Revenu'),
+        specs=[[{"secondary_y": False}, {"secondary_y": False}, {"secondary_y": False}]]
+    )
+
+    fig_secondary_1.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['purchases'],
+                   name='Purchases', line=dict(color='#f39c12')),
+        row=1, col=1
+    )
+
+    fig_secondary_1.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['login'],
+                   name='Logins', line=dict(color='#1abc9c')),
+        row=1, col=2
+    )
+
+    fig_secondary_1.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['revenue'],
+                   name='Revenu', line=dict(color='#27ae60')),
+        row=1, col=3
+    )
+
+    fig_secondary_1.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig_secondary_1, use_container_width=True)
+
+    # Graphiques CPI et ROAS
+    fig_secondary_2 = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=('CPI', 'ROAS'),
+        specs=[[{"secondary_y": False}, {"secondary_y": False}]]
+    )
+
+    fig_secondary_2.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['cpi'],
+                   name='CPI', line=dict(color='#e67e22')),
+        row=1, col=1
+    )
+
+    fig_secondary_2.add_trace(
+        go.Scatter(x=daily_data['date'], y=daily_data['roas'],
+                   name='ROAS', line=dict(color='#8e44ad')),
+        row=1, col=2
+    )
+
+    fig_secondary_2.update_layout(height=400, showlegend=False)
+    st.plotly_chart(fig_secondary_2, use_container_width=True)
+
+
+def apply_temporal_filters(
+        data: pd.DataFrame,
+        campaign_types_data: Optional[pd.DataFrame],
+        regex_pattern: str,
+        filter_mode: str,
+        selected_types: list,
+        selected_channels: list,
+        period_select: str,
+        date_range: tuple
+) -> pd.DataFrame:
+    """
+    Applique tous les filtres sur les données pour les performances temporelles
+    Version complète avec normalisation des colonnes et debug
+    """
+    filtered = data.copy()
+
+    # DEBUG : Vérifier les données reçues
+    print(f"🔍 DEBUG apply_temporal_filters:")
+    print(f"   - Lignes reçues: {len(filtered)}")
+    print(f"   - Colonnes disponibles: {filtered.columns.tolist()[:15]}...")
+
+    # ===== NORMALISATION DES COLONNES =====
+    # Mapping pour normaliser les noms de colonnes (notamment pour ASA)
+    column_mapping = {
+        'Campaign Name': 'campaign_name',
+        'Campaign': 'campaign_name',
+        'campaign': 'campaign_name',
+        'Day': 'date',
+        'Date': 'date',
+        'day': 'date',
+        'Spend': 'cost',
+        'Cost': 'cost',
+        'spend': 'cost',
+        'Taps': 'clicks',
+        'Clicks': 'clicks',
+        'taps': 'clicks',
+        'Installs (Tap-Through)': 'installs',
+        'Installs': 'installs',
+        'installs (tap-through)': 'installs',
+        'New Downloads (Tap-Through)': 'new_downloads',
+        'Redownloads (Tap-Through)': 'redownloads',
+        'Impressions': 'impressions',
+        'Impr.': 'impressions',
+        'Purchase': 'purchases',
+        'Purchases': 'purchases',
+        'Revenue': 'revenue',
+        'Conv. value': 'revenue',
+        'Unified revenue': 'revenue',
+        'Unified installs': 'installs',
+        'Unified purchases': 'purchases',
+        'Unified opens': 'opens',
+        'Unified login': 'login'
+    }
+
+    # Appliquer le mapping de colonnes
+    for old_name, new_name in column_mapping.items():
+        if old_name in filtered.columns and new_name not in filtered.columns:
+            filtered.rename(columns={old_name: new_name}, inplace=True)
+            print(f"   - Renommé: {old_name} → {new_name}")
+
+    # ===== VÉRIFICATION ET CRÉATION DES COLONNES ESSENTIELLES =====
+
+    # Vérifier campaign_name
+    if 'campaign_name' not in filtered.columns:
+        print("⚠️ Colonne campaign_name manquante après normalisation")
+        # Essayer de trouver une alternative
+        possible_campaign_cols = [col for col in filtered.columns if 'campaign' in col.lower()]
+        if possible_campaign_cols:
+            filtered['campaign_name'] = filtered[possible_campaign_cols[0]]
+            print(f"   - Utilisé {possible_campaign_cols[0]} comme campaign_name")
+        else:
+            filtered['campaign_name'] = 'Unknown'
+            print("   - Créé campaign_name avec valeur par défaut 'Unknown'")
+
+    # S'assurer que les colonnes numériques sont bien numériques
+    numeric_columns = ['cost', 'clicks', 'impressions', 'installs', 'purchases', 'revenue', 'opens', 'login']
+    for col in numeric_columns:
+        if col in filtered.columns:
+            filtered[col] = pd.to_numeric(filtered[col], errors='coerce').fillna(0)
+
+    # Créer les colonnes manquantes avec des valeurs par défaut
+    if 'opens' not in filtered.columns:
+        filtered['opens'] = 0
+    if 'login' not in filtered.columns:
+        filtered['login'] = 0
+    if 'revenue' not in filtered.columns:
+        filtered['revenue'] = 0
+    if 'purchases' not in filtered.columns:
+        filtered['purchases'] = 0
+
+    # Stats avant filtrage
+    print(f"   - Campagnes uniques: {filtered['campaign_name'].nunique()}")
+    print(f"   - Exemples campagnes: {filtered['campaign_name'].unique()[:5].tolist()}")
+    print(f"   - Coût total avant filtrage: {filtered['cost'].sum():.2f}€" if 'cost' in filtered.columns else "")
+
+    # ===== 1. ENRICHISSEMENT AVEC CLASSIFICATIONS =====
+    if campaign_types_data is not None and not campaign_types_data.empty:
+        if 'campaign_name' in filtered.columns and 'campaign_name' in campaign_types_data.columns:
+            print(f"   - Fusion avec classifications...")
+
+            # Préparer les classifications
+            classifications = campaign_types_data[['campaign_name', 'campaign_type', 'platform_type']].drop_duplicates()
+
+            # Merger avec les classifications
+            before_merge = len(filtered)
+            filtered = filtered.merge(
+                classifications,
+                on='campaign_name',
+                how='left',
+                suffixes=('', '_class')
+            )
+            print(f"   - Lignes après merge: {before_merge} → {len(filtered)}")
+
+            # Gérer les colonnes de classification dupliquées
+            if 'campaign_type_class' in filtered.columns:
+                if 'campaign_type' not in filtered.columns:
+                    filtered['campaign_type'] = filtered['campaign_type_class']
+                else:
+                    filtered['campaign_type'] = filtered['campaign_type'].fillna(filtered['campaign_type_class'])
+                filtered = filtered.drop(columns=['campaign_type_class'])
+
+            if 'platform_type_class' in filtered.columns:
+                if 'platform_type' not in filtered.columns:
+                    filtered['platform_type'] = filtered['platform_type_class']
+                else:
+                    filtered['platform_type'] = filtered['platform_type'].fillna(filtered['platform_type_class'])
+                filtered = filtered.drop(columns=['platform_type_class'])
+
+    # ===== 2. FILTRE REGEX SUR NOM DE CAMPAGNE =====
+    if regex_pattern and 'campaign_name' in filtered.columns:
+        try:
+            print(f"   - Application regex '{regex_pattern}' en mode {filter_mode}")
+            pattern = re.compile(regex_pattern, re.IGNORECASE)
+
+            # Créer le masque
+            mask = filtered['campaign_name'].str.contains(pattern, na=False, regex=True)
+            matches = mask.sum()
+
+            print(f"   - Campagnes qui matchent le pattern: {matches}/{len(mask)}")
+
+            # Afficher quelques exemples de campagnes qui matchent
+            if matches > 0:
+                matching_campaigns = filtered[mask]['campaign_name'].unique()[:3]
+                print(f"   - Exemples de matches: {matching_campaigns.tolist()}")
+
+            # Appliquer le filtre selon le mode
+            if filter_mode == 'inclusion':
+                filtered = filtered[mask]
+                print(f"   ✅ Après inclusion: {len(filtered)} lignes gardées")
+            else:  # exclusion
+                filtered = filtered[~mask]
+                print(f"   ✅ Après exclusion: {len(filtered)} lignes gardées")
+
+        except re.error as e:
+            print(f"   ❌ Erreur regex: {e}")
+
+    # ===== 3. FILTRE SUR TYPE DE CAMPAGNE =====
+    if selected_types and 'campaign_type' in filtered.columns:
+        print(f"   - Filtre par types: {selected_types}")
+        before = len(filtered)
+        filtered = filtered[filtered['campaign_type'].isin(selected_types)]
+        print(f"   ✅ Après filtre types: {before} → {len(filtered)} lignes")
+
+    # ===== 4. FILTRE SUR CANAL =====
+    if selected_channels:
+        print(f"   - Filtre par canaux: {selected_channels}")
+
+        # Identifier la colonne canal
+        channel_column = None
+        if 'platform_type' in filtered.columns:
+            channel_column = 'platform_type'
+        elif 'channel_type' in filtered.columns:
+            channel_column = 'channel_type'
+        elif 'platform' in filtered.columns:
+            channel_column = 'platform'
+
+        if channel_column:
+            before = len(filtered)
+            filtered = filtered[filtered[channel_column].isin(selected_channels)]
+            print(f"   ✅ Après filtre canaux ({channel_column}): {before} → {len(filtered)} lignes")
+        else:
+            print(f"   ⚠️ Pas de colonne canal trouvée")
+
+    # ===== 5. FILTRE DE PÉRIODE =====
+    if period_select != "Tout" and 'date' in filtered.columns:
+        print(f"   - Filtre période: {period_select}")
+
+        # S'assurer que la colonne date est en datetime
+        filtered['date'] = pd.to_datetime(filtered['date'], errors='coerce')
+
+        # Retirer les lignes avec dates invalides
+        before_date_filter = len(filtered)
+        filtered = filtered[filtered['date'].notna()]
+        if before_date_filter > len(filtered):
+            print(f"   - {before_date_filter - len(filtered)} lignes retirées (dates invalides)")
+
+        # Calculer la période
+        end_date = pd.Timestamp(date_range[1])
+
+        if period_select == "7 derniers jours":
+            start_date = end_date - pd.Timedelta(days=6)
+        elif period_select == "14 derniers jours":
+            start_date = end_date - pd.Timedelta(days=13)
+        elif period_select == "30 derniers jours":
+            start_date = end_date - pd.Timedelta(days=29)
+        elif period_select == "Mois en cours":
+            start_date = pd.Timestamp(end_date.year, end_date.month, 1)
+        else:
+            start_date = pd.Timestamp(date_range[0])
+
+        before = len(filtered)
+        filtered = filtered[(filtered['date'] >= start_date) & (filtered['date'] <= end_date)]
+        print(f"   ✅ Après filtre période ({start_date.date()} à {end_date.date()}): {before} → {len(filtered)} lignes")
+
+    # ===== STATS FINALES =====
+    print(f"\n   📊 RÉSULTAT FINAL:")
+    print(f"   - Lignes finales: {len(filtered)}")
+    if 'campaign_name' in filtered.columns:
+        print(f"   - Campagnes uniques: {filtered['campaign_name'].nunique()}")
+        print(f"   - Liste campagnes: {filtered['campaign_name'].unique().tolist()[:10]}")
+    if 'cost' in filtered.columns:
+        print(f"   - Coût total: {filtered['cost'].sum():.2f}€")
+    if 'installs' in filtered.columns:
+        print(f"   - Installs totales: {filtered['installs'].sum():.0f}")
+    if 'revenue' in filtered.columns:
+        print(f"   - Revenue total: {filtered['revenue'].sum():.2f}€")
+
+    return filtered
+
+
+# ===== TOUTES VOS AUTRES FONCTIONS EXISTANTES =====
 def _prepare_daily_data(data: pd.DataFrame) -> pd.DataFrame:
     """Prépare les données pour l'analyse temporelle"""
-
     try:
-        # Conversion de la date si nécessaire
         if 'date' not in data.columns:
             st.error("Colonne 'date' manquante dans les données")
             return pd.DataFrame()
 
-        # Conversion en datetime si ce n'est pas déjà fait
         if data['date'].dtype == 'object':
             data['date'] = pd.to_datetime(data['date'])
 
-        # Groupement par date
         daily_data = data.groupby('date').agg({
             'cost': 'sum',
             'impressions': 'sum',
@@ -169,10 +718,8 @@ def _prepare_daily_data(data: pd.DataFrame) -> pd.DataFrame:
             'login': 'sum'
         }).reset_index()
 
-        # Tri par date
         daily_data = daily_data.sort_values('date')
 
-        # Calcul des métriques dérivées
         daily_data['ctr'] = (daily_data['clicks'] / daily_data['impressions'] * 100).fillna(0)
         daily_data['conversion_rate'] = (daily_data['installs'] / daily_data['clicks'] * 100).fillna(0)
         daily_data['purchase_rate'] = (daily_data['purchases'] / daily_data['installs'] * 100).fillna(0)
@@ -195,7 +742,6 @@ def _create_line_chart(daily_data: pd.DataFrame, metrics: List[str], show_trend:
                [{"secondary_y": True}, {"secondary_y": True}]]
     )
 
-    # Couleurs pour les métriques
     colors = {
         'cost': '#e74c3c',
         'revenue': '#27ae60',

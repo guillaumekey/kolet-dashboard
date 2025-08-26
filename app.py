@@ -531,10 +531,207 @@ def main():
             st.error(f"❌ Erreur funnel d'acquisition: {str(e)}")
 
         # Section Performance temporelle
+        # CORRECTION FINALE DANS app.py - Section Performance temporelle
+        # ===============================================================
+        # Respecte TOUTE la logique métier :
+        # - Coûts/Impressions/Clics : Google Ads + ASA
+        # - App : Installs/Opens/Login/Purchases/Revenue depuis Branch
+        # - Web : Purchases/Revenue/Add_to_cart depuis Google Ads
+
         try:
-            render_temporal_performance(processed_data['consolidated'])
+            # Reproduire EXACTEMENT la logique métier du tableau détaillé
+            google_ads_data = pd.DataFrame()
+            asa_data = pd.DataFrame()
+            branch_data = pd.DataFrame()
+
+            if 'raw' in processed_data and processed_data['raw']:
+                if 'google_ads' in processed_data['raw']:
+                    google_ads_data = processed_data['raw']['google_ads'].copy()
+                if 'asa' in processed_data['raw']:
+                    asa_data = processed_data['raw']['asa'].copy()
+                if 'branch' in processed_data['raw']:
+                    branch_data = processed_data['raw']['branch'].copy()
+
+            # Filtrer seulement les campagnes classifiées
+            if not google_ads_data.empty and 'campaign_type' in google_ads_data.columns:
+                google_ads_data = google_ads_data[
+                    google_ads_data['campaign_type'].notna() &
+                    google_ads_data['channel_type'].notna()
+                    ]
+
+            if not asa_data.empty and 'campaign_type' in asa_data.columns:
+                asa_data = asa_data[
+                    asa_data['campaign_type'].notna() &
+                    asa_data['channel_type'].notna()
+                    ]
+
+            if not branch_data.empty and 'campaign_type' in branch_data.columns:
+                branch_data = branch_data[
+                    branch_data['campaign_type'].notna() &
+                    branch_data['channel_type'].notna()
+                    ]
+
+            # Collecter toutes les dates
+            all_dates = set()
+            for df in [google_ads_data, asa_data, branch_data]:
+                if not df.empty and 'date' in df.columns:
+                    all_dates.update(pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d'))
+
+            # Construire les données consolidées jour par jour
+            consolidated_data = []
+
+            for date in sorted(all_dates):
+                # === DONNÉES PUBLICITAIRES (Coûts/Impressions/Clics) ===
+                daily_campaigns = {}
+
+                # Google Ads
+                if not google_ads_data.empty:
+                    google_daily = google_ads_data[google_ads_data['date'] == date]
+                    for _, row in google_daily.iterrows():
+                        campaign = row.get('campaign_name', 'Unknown')
+                        channel = row.get('channel_type', 'unknown')
+
+                        if campaign not in daily_campaigns:
+                            daily_campaigns[campaign] = {
+                                'date': date,
+                                'campaign_name': campaign,
+                                'campaign_type': row.get('campaign_type'),
+                                'channel_type': channel,
+                                'cost': 0,
+                                'impressions': 0,
+                                'clicks': 0,
+                                'installs': 0,
+                                'opens': 0,
+                                'login': 0,
+                                'purchases': 0,
+                                'revenue': 0,
+                                'add_to_cart': 0
+                            }
+
+                        # Toujours ajouter coûts/impressions/clics
+                        daily_campaigns[campaign]['cost'] += row.get('cost', 0)
+                        daily_campaigns[campaign]['impressions'] += row.get('impressions', 0)
+                        daily_campaigns[campaign]['clicks'] += row.get('clicks', 0)
+
+                        # Si WEB : ajouter purchases/revenue/add_to_cart depuis Google Ads
+                        if channel == 'web':
+                            daily_campaigns[campaign]['purchases'] += row.get('purchases', 0)
+                            daily_campaigns[campaign]['revenue'] += row.get('revenue', 0)
+                            daily_campaigns[campaign]['add_to_cart'] += row.get('add_to_cart', 0)
+
+                # ASA (toujours App)
+                if not asa_data.empty:
+                    asa_daily = asa_data[asa_data['date'] == date]
+                    for _, row in asa_daily.iterrows():
+                        campaign = row.get('campaign_name', row.get('Campaign Name', 'Unknown'))
+
+                        if campaign not in daily_campaigns:
+                            daily_campaigns[campaign] = {
+                                'date': date,
+                                'campaign_name': campaign,
+                                'campaign_type': row.get('campaign_type'),
+                                'channel_type': 'app',  # ASA est toujours App
+                                'cost': 0,
+                                'impressions': 0,
+                                'clicks': 0,
+                                'installs': 0,
+                                'opens': 0,
+                                'login': 0,
+                                'purchases': 0,
+                                'revenue': 0,
+                                'add_to_cart': 0
+                            }
+
+                        # Normaliser les colonnes ASA
+                        cost = row.get('cost', row.get('Spend', row.get('spend', 0)))
+                        impressions = row.get('impressions', row.get('Impressions', 0))
+                        clicks = row.get('clicks', row.get('Taps', row.get('taps', 0)))
+
+                        daily_campaigns[campaign]['cost'] += cost
+                        daily_campaigns[campaign]['impressions'] += impressions
+                        daily_campaigns[campaign]['clicks'] += clicks
+
+                # === DONNÉES DE CONVERSION APP (Branch.io) ===
+                if not branch_data.empty:
+                    branch_daily = branch_data[branch_data['date'] == date]
+                    for _, row in branch_daily.iterrows():
+                        campaign = row.get('campaign_name', 'Unknown')
+                        channel = row.get('channel_type', 'unknown')
+
+                        # Branch fournit les données de conversion pour APP uniquement
+                        if channel == 'app':
+                            if campaign not in daily_campaigns:
+                                daily_campaigns[campaign] = {
+                                    'date': date,
+                                    'campaign_name': campaign,
+                                    'campaign_type': row.get('campaign_type'),
+                                    'channel_type': channel,
+                                    'cost': 0,
+                                    'impressions': 0,
+                                    'clicks': 0,
+                                    'installs': 0,
+                                    'opens': 0,
+                                    'login': 0,
+                                    'purchases': 0,
+                                    'revenue': 0,
+                                    'add_to_cart': 0
+                                }
+
+                            # Pour APP : les métriques de conversion viennent de Branch
+                            daily_campaigns[campaign]['installs'] += row.get('installs', 0)
+                            daily_campaigns[campaign]['opens'] += row.get('opens', 0)
+                            daily_campaigns[campaign]['login'] += row.get('login', 0)
+                            daily_campaigns[campaign]['purchases'] += row.get('purchases', 0)
+                            daily_campaigns[campaign]['revenue'] += row.get('revenue', 0)
+
+                # Ajouter toutes les campagnes du jour
+                consolidated_data.extend(daily_campaigns.values())
+
+            # Convertir en DataFrame
+            temporal_data = pd.DataFrame(consolidated_data)
+
+            # S'assurer que toutes les colonnes numériques sont bien typées
+            numeric_cols = ['cost', 'impressions', 'clicks', 'installs', 'opens', 'login', 'purchases', 'revenue',
+                            'add_to_cart']
+            for col in numeric_cols:
+                if col in temporal_data.columns:
+                    temporal_data[col] = pd.to_numeric(temporal_data[col], errors='coerce').fillna(0)
+
+            # Stats de vérification
+            print(f"📊 Données temporelles (logique métier complète):")
+            print(f"   - Total lignes: {len(temporal_data)}")
+            print(f"   - Campagnes uniques: {temporal_data['campaign_name'].nunique()}")
+
+            # Séparer App et Web pour vérification
+            app_data = temporal_data[temporal_data['channel_type'] == 'app']
+            web_data = temporal_data[temporal_data['channel_type'] == 'web']
+
+            print(f"\n   📱 APP:")
+            print(f"   - Coût (Google Ads + ASA): {app_data['cost'].sum():.2f}€")
+            print(f"   - Installs (Branch): {app_data['installs'].sum():.0f}")
+            print(f"   - Revenue (Branch): {app_data['revenue'].sum():.2f}€")
+
+            print(f"\n   🌐 WEB:")
+            print(f"   - Coût (Google Ads): {web_data['cost'].sum():.2f}€")
+            print(f"   - Purchases (Google Ads): {web_data['purchases'].sum():.0f}")
+            print(f"   - Revenue (Google Ads): {web_data['revenue'].sum():.2f}€")
+            print(f"   - Add to cart (Google Ads): {web_data['add_to_cart'].sum():.0f}")
+
+            print(f"\n   💰 TOTAL:")
+            print(f"   - Coût total: {temporal_data['cost'].sum():.2f}€")
+            print(f"   - Revenue total: {temporal_data['revenue'].sum():.2f}€")
+
+            render_temporal_performance(
+                temporal_data,
+                date_range=sidebar_params['date_range'],
+                campaign_types_data=processed_data.get('campaign_types', pd.DataFrame())
+            )
+
         except Exception as e:
             st.error(f"❌ Erreur performance temporelle: {str(e)}")
+            with st.expander("Détails de l'erreur"):
+                import traceback
+                st.code(traceback.format_exc())
 
         # Section Comparaison App vs Web
         try:

@@ -4,9 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="569b4c83-6bce-4c8d-9b8d-b3117574d16f" name="Changes" comment="Mise à jour avec vision par campagne">
+    <list default="true" id="569b4c83-6bce-4c8d-9b8d-b3117574d16f" name="Changes" comment="Correction ROAS lors d'un filtre de campagne">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/components/campaign_type_comparison.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/components/campaign_type_comparison.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/components/temporal_charts.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/components/temporal_charts.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -116,12 +117,21 @@
       <option name="project" value="LOCAL" />
       <updated>1751970750380</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="Correction ROAS lors d'un filtre de campagne">
+      <option name="closed" value="true" />
+      <created>1753975269683</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1753975269683</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Mise à jour complète de l'app" />
     <MESSAGE value="Mise à jour avec vision par campagne" />
-    <option name="LAST_COMMIT_MESSAGE" value="Mise à jour avec vision par campagne" />
+    <MESSAGE value="Correction ROAS lors d'un filtre de campagne" />
+    <option name="LAST_COMMIT_MESSAGE" value="Correction ROAS lors d'un filtre de campagne" />
   </component>
 </project>
