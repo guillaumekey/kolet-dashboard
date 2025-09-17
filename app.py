@@ -23,6 +23,8 @@ from ui.components.campaign_config import show_campaign_configuration
 from ui.components.campaign_type_comparison import (
     render_campaign_type_comparison
 )
+from ui.components.weekly_performance import render_weekly_performance_table
+
 # SUPPRIMÉ : Import de partner_performance
 
 
@@ -500,6 +502,21 @@ def main():
             render_main_kpis(processed_data)
         except Exception as e:
             st.error(f"❌ Erreur KPI principaux: {str(e)}")
+
+        # 🆕 SECTION HEBDOMADAIRE - DEBUG VERSION
+        st.write("🔍 DEBUG: Tentative d'affichage de la section hebdomadaire...")
+
+        try:
+            st.markdown("---")
+            render_weekly_performance_table(
+                processed_data=processed_data,  # Même données que les KPIs globaux
+                date_range=sidebar_params['date_range'],
+                exclude_unpopulated=sidebar_params['exclude_unpopulated']
+            )
+        except Exception as e:
+            st.error(f"❌ Erreur performances hebdomadaires: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
 
         # Section Comparaison par Type de Campagne
         try:
